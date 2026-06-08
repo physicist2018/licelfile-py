@@ -72,6 +72,9 @@ for p in profiles:
 # Merge analog and photon at 355 nm, polarization "o",
 # using altitude range 1500-2500 m for calibration
 lf.glue(wavelength=355.0, polarization="o", h1=1500, h2=2500)
+
+# Same for all files in a pack — returns new pack with only glued files
+glued_pack = pack.glue(wavelength=532.0, polarization="s", h1=1000, h2=2000)
 ```
 
 ### Filter profiles in a LicelFile
@@ -182,7 +185,7 @@ Methods: `select_certain_wavelength()`, `glue()`, `filter()`, `save()`, `to_byte
 
 Fields: `StartTime`, `StopTime`, `Data` (dict of `LicelFile`)
 
-Methods: `select_certain_wavelength()`, `filter()`, `filter_files()`, `save()`, `save_to_zip()`, `to_dict()`, `truncate(rmax)`
+Methods: `select_certain_wavelength()`, `filter()`, `filter_files()`, `glue()`, `save()`, `save_to_zip()`, `to_dict()`, `truncate(rmax)`
 
 ### Module‑level functions
 

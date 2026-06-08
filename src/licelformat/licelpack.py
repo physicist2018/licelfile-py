@@ -60,6 +60,31 @@ class LicelPack:
         for licf in self.Data.values():
             licf.truncate(rmax)
 
+    def glue(
+        self,
+        wavelength: float,
+        polarization: str,
+        h1: float,
+        h2: float,
+    ) -> "LicelPack":
+        """Glue analog and photon channels, returning files that succeeded.
+
+        For each file that has both a photon and an analog channel with
+        the given wavelength and polarization, creates a glued profile.
+
+        Returns:
+            A new LicelPack containing only the files where glue succeeded.
+        """
+        result = LicelPack()
+        for name, licf in self.Data.items():
+            try:
+                licf.glue(wavelength, polarization, h1, h2)
+                result.Data[name] = licf
+                _update_time_range(result, licf.MeasurementStartTime)
+            except ValueError:
+                pass
+        return result
+
     def filter(self, f: "Callable[[LicelProfile], bool]") -> LicelProfilesList:
         """Collect profiles that satisfy a predicate across all files.
 
