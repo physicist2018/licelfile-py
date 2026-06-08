@@ -69,6 +69,106 @@ class LicelFile:
         for p in self.Profiles:
             p.truncate(rmax)
 
+    def glue(
+        self,
+        wavelength: float,
+        polarization: str,
+        h1: float,
+        h2: float,
+    ) -> LicelProfile:
+        """Glue (merge) photon and analog channels of the same wavelength.
+
+        Finds a photon channel (isPhoton) and an analog channel (isAnalog)
+        with the given wavelength and polarization, computes the mean
+        ratio k = analog / photon in the altitude range [h1, h2], and
+        produces a merged ('glued') profile:
+
+          h < h1   : analog data
+          h1..h2   : (analog + photon * k) / 2
+          h > h2   : photon * k
+
+        Args:
+            wavelength: Laser wavelength in nm.
+            polarization: Polarization string ("o", "s", or "").
+            h1: Start of the merge interval (meters).
+            h2: End of the merge interval (meters).
+
+        Returns:
+            The newly created glued LicelProfile (DeviceID == 'BG').
+
+        Raises:
+            ValueError: If no matching photon/analog pair is found or
+                        BinWidth is zero.
+        """
+        p1 = None  # photon
+        p2 = None  # analog
+        for p in self.Profiles:
+            if p.Wavelength != wavelength or p.Polarization != polarization:
+                continue
+            if p.isPhoton:
+                p1 = p
+            elif p.isAnalog:
+                p2 = p
+
+        if p1 is None or p2 is None:
+            raise ValueError(
+                f"No matching photon/analog pair for wavelength={wavelength}, "
+                f"polarization={polarization!r}"
+            )
+
+        if p1.BinWidth <= 0 or p2.BinWidth <= 0:
+            raise ValueError("BinWidth must be positive")
+
+        npts = min(p1.NDataPoints, p2.NDataPoints)
+        bw = p1.BinWidth
+        n1 = min(int(h1 / bw), npts)
+        n2 = min(int(h2 / bw), npts)
+
+        if n2 <= n1:
+            raise ValueError(f"h2 ({h2}) must be greater than h1 ({h1})")
+
+        # Compute mean ratio k = analog / photon in the overlap zone
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ratio = p2.Data[n1:n2] / p1.Data[n1:n2]
+            ratio = ratio[np.isfinite(ratio)]
+        if len(ratio) == 0:
+            raise ValueError("No valid ratio values in the h1..h2 interval")
+        k = float(np.mean(ratio))
+
+        # Build the glued profile
+        glued = LicelProfile()
+        # Copy metadata from analog channel
+        glued.Active = p2.Active
+        glued.Photon = False
+        glued.LaserType = p2.LaserType
+        glued.NDataPoints = npts
+        glued.Reserved = p2.Reserved[:]
+        glued.HighVoltage = p2.HighVoltage
+        glued.BinWidth = p2.BinWidth
+        glued.Wavelength = p2.Wavelength
+        glued.Polarization = p2.Polarization
+        glued.BinShift = p2.BinShift
+        glued.DecBinShift = p2.DecBinShift
+        glued.AdcBits = p2.AdcBits
+        glued.NShots = p2.NShots
+        glued.DiscrLevel = p2.DiscrLevel
+        glued.DeviceID = "BG"
+        glued.NCrate = p2.NCrate
+
+        # Fill data
+        data = np.empty(npts, dtype=np.float64)
+        # h < h1: analog
+        data[:n1] = p2.Data[:n1]
+        # h1..h2: (analog + photon * k) / 2
+        data[n1:n2] = (p2.Data[n1:n2] + p1.Data[n1:n2] * k) * 0.5
+        # h > h2: photon * k
+        data[n2:] = p1.Data[n2:npts] * k
+        glued.Data = data.tolist()
+
+        self.Profiles.append(glued)
+        self.NDatasets += 1
+        return glued
+
     def filter(self, f: "Callable[[LicelProfile], bool]") -> LicelProfilesList:
         """Filter profiles using a predicate function.
 

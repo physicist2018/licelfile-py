@@ -66,6 +66,14 @@ for p in profiles:
     print(p.Data.mean())
 ```
 
+### Glue (merge) analog and photon channels
+
+```python
+# Merge analog and photon at 355 nm, polarization "o",
+# using altitude range 1500-2500 m for calibration
+lf.glue(wavelength=355.0, polarization="o", h1=1500, h2=2500)
+```
+
 ### Filter profiles in a LicelFile
 
 ```python
@@ -168,7 +176,7 @@ Fields: `MeasurementSite`, `MeasurementStartTime`, `MeasurementStopTime`,
 `Laser1Freq`, `Laser2NShots`, `Laser2Freq`, `NDatasets`, `Laser3NShots`,
 `Laser3Freq`, `FileLoaded`, `Profiles`
 
-Methods: `select_certain_wavelength()`, `filter()`, `save()`, `to_bytes()`, `to_dict()`, `truncate(rmax)`
+Methods: `select_certain_wavelength()`, `glue()`, `filter()`, `save()`, `to_bytes()`, `to_dict()`, `truncate(rmax)`
 
 ### `licelformat.LicelPack`
 
