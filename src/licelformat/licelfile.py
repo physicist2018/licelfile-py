@@ -169,6 +169,51 @@ class LicelFile:
         self.NDatasets += 1
         return glued
 
+    def subtract_background(
+        self,
+        method: str = "mean",
+        bgrRange: float = None,
+        dark_file: "LicelFile" = None,
+    ) -> None:
+        """Subtract background from all profiles in the file.
+
+        Args:
+            method: One of "mean", "median", or "dark".
+            bgrRange: Range in meters beyond which background is estimated
+                      (used for "mean" and "median").
+            dark_file: A LicelFile containing dark signal profiles
+                       (used for "dark"). For each profile, the matching
+                       dark profile is found by wavelength, polarization,
+                       and channel type.
+
+        Raises:
+            ValueError: If method is invalid or required arguments are missing.
+        """
+        if method == "dark":
+            if dark_file is None:
+                raise ValueError("dark_file is required for method='dark'")
+            for p in self.Profiles:
+                dark_p = None
+                for dp in dark_file.Profiles:
+                    if (
+                        dp.Wavelength == p.Wavelength
+                        and dp.Polarization == p.Polarization
+                        and dp.isPhoton == p.isPhoton
+                        and dp.isAnalog == p.isAnalog
+                    ):
+                        dark_p = dp
+                        break
+                if dark_p is None:
+                    raise ValueError(
+                        f"No matching dark profile for wavelength={p.Wavelength}, "
+                        f"polarization={p.Polarization!r}, "
+                        f"isPhoton={p.isPhoton}, isAnalog={p.isAnalog}"
+                    )
+                p.subtract_background(method="dark", dark_profile=dark_p)
+        else:
+            for p in self.Profiles:
+                p.subtract_background(method=method, bgrRange=bgrRange)
+
     def filter(self, f: "Callable[[LicelProfile], bool]") -> LicelProfilesList:
         """Filter profiles using a predicate function.
 

@@ -77,6 +77,22 @@ lf.glue(wavelength=355.0, polarization="o", h1=1500, h2=2500)
 glued_pack = pack.glue(wavelength=532.0, polarization="s", h1=1000, h2=2000)
 ```
 
+### Subtract background
+
+```python
+# By mean of tail beyond 8000 m
+lf.subtract_background(method="mean", bgrRange=8000.0)
+
+# By median of tail beyond 8000 m
+lf.subtract_background(method="median", bgrRange=8000.0)
+
+# Using a dark signal file
+lf.subtract_background(method="dark", dark_file=dark_licel_file)
+
+# Same for all files in a pack
+pack.subtract_background(method="mean", bgrRange=8000.0)
+```
+
 ### Filter profiles in a LicelFile
 
 ```python
@@ -170,7 +186,7 @@ round‑trip is **lossless**.
 | `isAnalog`    | `bool`    | `True` if `DeviceID == 'BT'`   |
 | `isGlued`     | `bool`    | `True` if `DeviceID == 'BG'`   |
 
-Methods: `metadata()`, `profile()`, `scale_factor()`, `to_dict()`, `truncate(rmax)`
+Methods: `metadata()`, `profile()`, `scale_factor()`, `to_dict()`, `truncate(rmax)`, `subtract_background()`
 
 ### `licelformat.LicelFile`
 
@@ -179,13 +195,13 @@ Fields: `MeasurementSite`, `MeasurementStartTime`, `MeasurementStopTime`,
 `Laser1Freq`, `Laser2NShots`, `Laser2Freq`, `NDatasets`, `Laser3NShots`,
 `Laser3Freq`, `FileLoaded`, `Profiles`
 
-Methods: `select_certain_wavelength()`, `glue()`, `filter()`, `save()`, `to_bytes()`, `to_dict()`, `truncate(rmax)`
+Methods: `select_certain_wavelength()`, `glue()`, `filter()`, `save()`, `to_bytes()`, `to_dict()`, `truncate(rmax)`, `subtract_background()`
 
 ### `licelformat.LicelPack`
 
 Fields: `StartTime`, `StopTime`, `Data` (dict of `LicelFile`)
 
-Methods: `select_certain_wavelength()`, `filter()`, `filter_files()`, `glue()`, `save()`, `save_to_zip()`, `to_dict()`, `truncate(rmax)`
+Methods: `select_certain_wavelength()`, `filter()`, `filter_files()`, `glue()`, `save()`, `save_to_zip()`, `to_dict()`, `truncate(rmax)`, `subtract_background()`
 
 ### Module‑level functions
 

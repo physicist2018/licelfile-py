@@ -127,6 +127,58 @@ class LicelProfile:
             self.NDataPoints = n
             self.Data = self.Data[:n]
 
+    def subtract_background(
+        self,
+        method: str = "mean",
+        bgrRange: float = None,
+        dark_profile: "LicelProfile" = None,
+    ) -> None:
+        """Subtract background signal from the profile.
+
+        Args:
+            method: One of "mean", "median", or "dark".
+            bgrRange: Range in meters beyond which background is estimated
+                      (used for "mean" and "median").
+            dark_profile: A LicelProfile with dark signal to subtract
+                          (used for "dark").
+
+        Raises:
+            ValueError: If method is invalid, or required arguments are missing.
+        """
+        if method == "dark":
+            if dark_profile is None:
+                raise ValueError("dark_profile is required for method='dark'")
+            if len(dark_profile.Data) != len(self.Data):
+                raise ValueError("dark_profile data length does not match")
+            self.Data = [v - d for v, d in zip(self.Data, dark_profile.Data)]
+            return
+
+        if method not in ("mean", "median"):
+            raise ValueError(
+                f"Unknown method: {method}. Use 'mean', 'median', or 'dark'"
+            )
+
+        if bgrRange is None:
+            raise ValueError("bgrRange is required for method='{}'".format(method))
+        if self.BinWidth <= 0:
+            raise ValueError("BinWidth must be positive for background estimation")
+
+        n = int(bgrRange / self.BinWidth)
+        if n >= self.NDataPoints:
+            raise ValueError(
+                f"bgrRange ({bgrRange}) is beyond profile data ({self.NDataPoints} points)"
+            )
+
+        tail = self.Data[n:]
+        import statistics
+
+        if method == "mean":
+            bg = sum(tail) / len(tail)
+        else:  # median
+            bg = statistics.median(tail)
+
+        self.Data = [v - bg for v in self.Data]
+
     def metadata(self) -> str:
         """Return the metadata string for this profile."""
         discr_fmt = "05.4f" if self.Photon else "05.3f"

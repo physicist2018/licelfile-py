@@ -60,6 +60,26 @@ class LicelPack:
         for licf in self.Data.values():
             licf.truncate(rmax)
 
+    def subtract_background(
+        self,
+        method: str = "mean",
+        bgrRange: float = None,
+        dark_file: "LicelFile" = None,
+    ) -> None:
+        """Subtract background from all profiles in all files of the pack.
+
+        Args:
+            method: One of "mean", "median", or "dark".
+            bgrRange: Range in meters beyond which background is estimated
+                      (used for "mean" and "median").
+            dark_file: A single LicelFile with dark signal channels
+                       (used for "dark"). Applied to every file in the pack.
+        """
+        for licf in self.Data.values():
+            licf.subtract_background(
+                method=method, bgrRange=bgrRange, dark_file=dark_file
+            )
+
     def glue(
         self,
         wavelength: float,
@@ -80,7 +100,7 @@ class LicelPack:
             try:
                 licf.glue(wavelength, polarization, h1, h2)
                 result.Data[name] = licf
-                _update_time_range(result, licf.MeasurementStartTime)
+                # _update_time_range(result, licf.MeasurementStartTime)
             except ValueError:
                 pass
         return result

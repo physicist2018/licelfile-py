@@ -339,3 +339,134 @@ class TestLicelPack:
         result = pack.filter_files(lambda lf: True)
         for key in result.Data:
             assert result.Data[key] is pack.Data[key]
+
+
+class TestSubtractBackground:
+    """Subtract background — mean, median, dark."""
+
+    @pytest.fixture
+    def profile(self):
+        p = LicelProfile()
+        p.BinWidth = 10.0
+        p.NDataPoints = 100
+        p.Data = [float(i) for i in range(100)]
+        return p
+
+    @pytest.fixture
+    def analog_profile(self):
+        p = LicelProfile()
+        p.BinWidth = 10.0
+        p.NDataPoints = 100
+        p.Data = [float(i) for i in range(100)]
+        p.DeviceID = "BT"
+        p.Photon = False
+        p.Wavelength = 355.0
+        p.Polarization = "o"
+        return p
+
+    @pytest.fixture
+    def photon_profile(self):
+        p = LicelProfile()
+        p.BinWidth = 10.0
+        p.NDataPoints = 100
+        p.Data = [float(i) for i in range(100)]
+        p.DeviceID = "BC"
+        p.Photon = True
+        p.Wavelength = 355.0
+        p.Polarization = "o"
+        return p
+
+    # --- LicelProfile tests ---
+
+    def test_profile_subtract_mean(self, profile):
+        profile.subtract_background(method="mean", bgrRange=800.0)
+        bg = 89.5
+        assert abs(profile.Data[0] - (0 - bg)) < 1e-9
+        assert abs(profile.Data[50] - (50 - bg)) < 1e-9
+        assert abs(profile.Data[99] - (99 - bg)) < 1e-9
+
+    def test_profile_subtract_median(self, profile):
+        profile.subtract_background(method="median", bgrRange=800.0)
+        bg = 89.5
+        assert abs(profile.Data[0] - (0 - bg)) < 1e-9
+
+    def test_profile_subtract_dark(self, profile):
+        dark = LicelProfile()
+        dark.Data = [1.0] * 100
+        profile.subtract_background(method="dark", dark_profile=dark)
+        assert profile.Data[0] == -1.0
+        assert profile.Data[50] == 49.0
+        assert profile.Data[99] == 98.0
+
+    def test_profile_subtract_mean_bgrange_too_large(self, profile):
+        with pytest.raises(ValueError, match="beyond profile data"):
+            profile.subtract_background(method="mean", bgrRange=2000.0)
+
+    def test_profile_subtract_dark_missing(self, profile):
+        with pytest.raises(ValueError, match="dark_profile is required"):
+            profile.subtract_background(method="dark")
+
+    def test_profile_subtract_dark_length_mismatch(self, profile):
+        dark = LicelProfile()
+        dark.Data = [1.0] * 50
+        with pytest.raises(ValueError, match="data length does not match"):
+            profile.subtract_background(method="dark", dark_profile=dark)
+
+    def test_profile_subtract_unknown_method(self, profile):
+        with pytest.raises(ValueError, match="Unknown method: invalid"):
+            profile.subtract_background(method="invalid", bgrRange=800.0)
+
+    # --- LicelFile tests ---
+
+    def test_file_subtract_mean(self, analog_profile, photon_profile):
+        lf = LicelFile()
+        lf.Profiles = [analog_profile, photon_profile]
+        lf.NDatasets = 2
+        lf.subtract_background(method="mean", bgrRange=800.0)
+        bg = 89.5
+        assert abs(lf.Profiles[0].Data[0] - (0 - bg)) < 1e-9
+        assert abs(lf.Profiles[1].Data[0] - (0 - bg)) < 1e-9
+
+    def test_file_subtract_dark(self, analog_profile, photon_profile):
+        lf = LicelFile()
+        lf.Profiles = [analog_profile, photon_profile]
+        lf.NDatasets = 2
+
+        dark_analog = LicelProfile()
+        dark_analog.Data = [10.0] * 100
+        dark_analog.DeviceID = "BT"
+        dark_analog.Photon = False
+        dark_analog.Wavelength = 355.0
+        dark_analog.Polarization = "o"
+
+        dark_photon = LicelProfile()
+        dark_photon.Data = [5.0] * 100
+        dark_photon.DeviceID = "BC"
+        dark_photon.Photon = True
+        dark_photon.Wavelength = 355.0
+        dark_photon.Polarization = "o"
+
+        dark_file = LicelFile()
+        dark_file.Profiles = [dark_analog, dark_photon]
+
+        lf.subtract_background(method="dark", dark_file=dark_file)
+        assert lf.Profiles[0].Data[0] == -10.0
+        assert lf.Profiles[1].Data[0] == -5.0
+
+    # --- LicelPack tests ---
+
+    def test_pack_subtract_mean(self):
+        lf = LicelFile()
+        p = LicelProfile()
+        p.BinWidth = 10.0
+        p.NDataPoints = 100
+        p.Data = [float(i) for i in range(100)]
+        lf.Profiles = [p]
+        lf.NDatasets = 1
+
+        pack = LicelPack()
+        pack.Data["test"] = lf
+
+        pack.subtract_background(method="mean", bgrRange=800.0)
+        bg = 89.5
+        assert abs(pack.Data["test"].Profiles[0].Data[0] - (0 - bg)) < 1e-9
