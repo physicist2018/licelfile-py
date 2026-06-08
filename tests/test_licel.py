@@ -191,6 +191,62 @@ class TestLicelFile:
         assert len(d["datasets"]) == 12
         assert d["datasets"][0]["wavelength"] == 355.0
 
+    def test_filter_all_match(self):
+        """filter with predicate that always returns True returns all profiles."""
+        a = LoadLicelFile(TEST_FILE)
+        result = a.filter(lambda p: True)
+        assert len(result) == len(a.Profiles)
+        assert result == a.Profiles
+
+    def test_filter_none_match(self):
+        """filter with predicate that always returns False returns empty list."""
+        a = LoadLicelFile(TEST_FILE)
+        result = a.filter(lambda p: False)
+        assert result == []
+
+    def test_filter_photon_channels(self):
+        """filter selects only photon‑counting profiles."""
+        a = LoadLicelFile(TEST_FILE)
+        result = a.filter(lambda p: p.Photon)
+        assert len(result) > 0
+        assert all(p.Photon for p in result)
+
+    def test_filter_analog_channels(self):
+        """filter selects only analog profiles."""
+        a = LoadLicelFile(TEST_FILE)
+        result = a.filter(lambda p: not p.Photon)
+        assert len(result) > 0
+        assert all(not p.Photon for p in result)
+
+    def test_filter_by_wavelength(self):
+        """filter selects only profiles at a given wavelength."""
+        a = LoadLicelFile(TEST_FILE)
+        result = a.filter(lambda p: p.Wavelength == 532.0)
+        assert len(result) > 0
+        assert all(p.Wavelength == 532.0 for p in result)
+
+    def test_filter_combined_predicate(self):
+        """filter with a combined predicate (wavelength + type)."""
+        a = LoadLicelFile(TEST_FILE)
+        # Photon channels at 355 nm
+        result = a.filter(lambda p: p.Wavelength == 355.0 and p.Photon)
+        assert len(result) == 1
+        assert result[0].Wavelength == 355.0
+        assert result[0].Photon is True
+
+    def test_filter_active_only(self):
+        """filter selects only active profiles."""
+        a = LoadLicelFile(TEST_FILE)
+        result = a.filter(lambda p: p.Active)
+        assert all(p.Active for p in result)
+
+    def test_filter_returns_list_of_profiles(self):
+        """filter returns a list of LicelProfile instances."""
+        a = LoadLicelFile(TEST_FILE)
+        result = a.filter(lambda p: p.Wavelength == 355.0)
+        assert isinstance(result, list)
+        assert all(isinstance(p, LicelProfile) for p in result)
+
 
 class TestLicelPack:
     """LicelPack — multi‑file loading and wavelength selection."""
@@ -222,3 +278,43 @@ class TestLicelPack:
         d = pack.to_dict()
         assert d["start_time"] is not None
         assert len(d["data"]) == 1
+
+    def test_filter_all_match(self):
+        """filter with predicate that always returns True returns full copy."""
+        pack = NewLicelPack(TEST_FILE)
+        result = pack.filter(lambda lf: True)
+        assert isinstance(result, LicelPack)
+        assert len(result.Data) == len(pack.Data)
+        assert result.StartTime == pack.StartTime
+        assert result.StopTime == pack.StopTime
+
+    def test_filter_none_match(self):
+        """filter with predicate that always returns False returns empty pack."""
+        pack = NewLicelPack(TEST_FILE)
+        result = pack.filter(lambda lf: False)
+        assert isinstance(result, LicelPack)
+        assert len(result.Data) == 0
+        assert result.StartTime is None
+        assert result.StopTime is None
+
+    def test_filter_by_site(self):
+        """filter selects files by measurement site."""
+        pack = NewLicelPack(TEST_FILE)
+        site = pack.Data[list(pack.Data.keys())[0]].MeasurementSite
+        result = pack.filter(lambda lf: lf.MeasurementSite == site)
+        assert len(result.Data) == 1
+        result = pack.filter(lambda lf: lf.MeasurementSite == "Nonexistent")
+        assert len(result.Data) == 0
+
+    def test_filter_returns_new_pack(self):
+        """filter returns a new LicelPack, not the same object."""
+        pack = NewLicelPack(TEST_FILE)
+        result = pack.filter(lambda lf: True)
+        assert result is not pack
+
+    def test_filter_preserves_references(self):
+        """filter shares the same LicelFile objects (shallow copy)."""
+        pack = NewLicelPack(TEST_FILE)
+        result = pack.filter(lambda lf: True)
+        for key in result.Data:
+            assert result.Data[key] is pack.Data[key]

@@ -4,15 +4,13 @@ LicelFile — structure representing a single Licel measurement.
 Provides loading, saving, and querying functionality for Licel format files.
 """
 
-import os
-import struct
 from datetime import datetime
-from io import BufferedReader, BytesIO, RawIOBase
-from typing import IO, List, Optional
+from io import BufferedReader, BytesIO
+from typing import IO, Callable, List, Optional
 
 import numpy as np
 
-from .licelprofile import LICEL_MAX_RESERVED, LicelProfile, _str2float, _str2int
+from .licelprofile import LicelProfile, _str2float, _str2int
 
 LicelProfilesList = List[LicelProfile]
 
@@ -65,6 +63,18 @@ class LicelFile:
             if profile.Photon == is_photon and profile.Wavelength == wavelength:
                 return profile
         return LicelProfile()
+
+    def filter(self, f: "Callable[[LicelProfile], bool]") -> LicelProfilesList:
+        """Filter profiles using a predicate function.
+
+        Args:
+            f: A callable that takes a LicelProfile and returns True
+               to include it in the result.
+
+        Returns:
+            List of profiles for which the predicate returned True.
+        """
+        return [p for p in self.Profiles if f(p)]
 
     def save(self, fname: str) -> None:
         """Save the Licel file to disk."""
@@ -256,20 +266,8 @@ def _load_licel_file_from_buffered_reader(r: BufferedReader) -> LicelFile:
 
         licf.Profiles[i].Data = _bytes_to_float64_array(pr_tmp)
 
-        # Apply scaling
-        if not licf.Profiles[i].Photon:
-            # Analog channel
-            adc_scale = 1 << licf.Profiles[i].AdcBits
-            scale = (
-                licf.Profiles[i].DiscrLevel
-                * 1000.0
-                / float(adc_scale * licf.Profiles[i].NShots)
-            )
-        else:
-            # Photon counting channel
-            scale = 1.0 / (float(licf.Profiles[i].NShots) * 0.05)
-
-        licf.Profiles[i].Data *= scale
+        # Apply scaling using the profile's own scale_factor
+        licf.Profiles[i].Data *= licf.Profiles[i].scale_factor()
 
         _skip_crlf(r)
 

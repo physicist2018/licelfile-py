@@ -15,6 +15,7 @@ reference Go implementation.
 - **Scale** raw ADC counts → millivolts and raw photon counts → MHz
 - **Round‑trip**: save → reload preserves data losslessly (unscale on write)
 - **Multi‑file** loading via glob masks and ZIP archives
+- **Filter** profiles by any predicate (`LicelFile.filter`) and files by any criteria (`LicelPack.filter`)
 - **Save to ZIP** with configurable compression method and level
 - **Profile selection** by wavelength and channel type
 - **NumPy** arrays for all profile data — ready for further analysis
@@ -63,6 +64,28 @@ profiles = pack.select_certain_wavelength(is_photon=True, wavelength=532.0)
 
 for p in profiles:
     print(p.Data.mean())
+```
+
+### Filter profiles in a LicelFile
+
+```python
+# Only photon‑counting channels
+photon = lf.filter(lambda p: p.Photon)
+
+# Only 532 nm channels
+at_532 = lf.filter(lambda p: p.Wavelength == 532.0)
+```
+
+### Filter files in a LicelPack
+
+```python
+# Keep only files from a specific site
+site_pack = pack.filter(lambda lf: lf.MeasurementSite == "Vladivos")
+
+# Keep only files with profiles at 355 nm
+has_355 = pack.filter(lambda lf: lf.select_certain_wavelength(True, 355.0).Wavelength != 0)
+
+print(site_pack.StartTime, site_pack.StopTime)  # recomputed from filtered set
 ```
 
 ### Load from a ZIP archive
@@ -136,13 +159,13 @@ Fields: `MeasurementSite`, `MeasurementStartTime`, `MeasurementStopTime`,
 `Laser1Freq`, `Laser2NShots`, `Laser2Freq`, `NDatasets`, `Laser3NShots`,
 `Laser3Freq`, `FileLoaded`, `Profiles`
 
-Methods: `select_certain_wavelength()`, `save()`, `to_bytes()`, `to_dict()`
+Methods: `select_certain_wavelength()`, `filter()`, `save()`, `to_bytes()`, `to_dict()`
 
 ### `licelformat.LicelPack`
 
-Fields: `StartTime`, `Data` (dict of `LicelFile`)
+Fields: `StartTime`, `StopTime`, `Data` (dict of `LicelFile`)
 
-Methods: `select_certain_wavelength()`, `save()`, `save_to_zip()`, `to_dict()`
+Methods: `select_certain_wavelength()`, `filter()`, `save()`, `save_to_zip()`, `to_dict()`
 
 ### Module‑level functions
 

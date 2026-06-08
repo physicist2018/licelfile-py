@@ -103,24 +103,15 @@ class LicelProfile:
 
     def metadata(self) -> str:
         """Return the metadata string for this profile."""
-        if self.Photon:
-            s = (
-                f" {_btoi(self.Active):1d} {_btoi(self.Photon):1d} {self.LaserType:1d} "
-                f"{self.NDataPoints:05d} {self.Reserved[0]:1d} {self.HighVoltage:04d} "
-                f"{self.BinWidth:04.2f} {int(self.Wavelength):05d}.{self.Polarization:<1s} "
-                f"{0:1d} {0:1d} {self.BinShift:02d} {self.DecBinShift:03d} "
-                f"{self.AdcBits:02d} {self.NShots:06d} {self.DiscrLevel:05.4f} "
-                f"{self.DeviceID:2s}{self.NCrate:01d}"
-            )
-        else:
-            s = (
-                f" {_btoi(self.Active):1d} {_btoi(self.Photon):1d} {self.LaserType:1d} "
-                f"{self.NDataPoints:05d} {self.Reserved[0]:1d} {self.HighVoltage:04d} "
-                f"{self.BinWidth:04.2f} {int(self.Wavelength):05d}.{self.Polarization:<1s} "
-                f"{0:1d} {0:1d} {self.BinShift:02d} {self.DecBinShift:03d} "
-                f"{self.AdcBits:02d} {self.NShots:06d} {self.DiscrLevel:05.3f} "
-                f"{self.DeviceID:2s}{self.NCrate:01d}"
-            )
+        discr_fmt = "05.4f" if self.Photon else "05.3f"
+        s = (
+            f" {_btoi(self.Active):1d} {_btoi(self.Photon):1d} {self.LaserType:1d} "
+            f"{self.NDataPoints:05d} {self.Reserved[0]:1d} {self.HighVoltage:04d} "
+            f"{self.BinWidth:04.2f} {int(self.Wavelength):05d}.{self.Polarization:<1s} "
+            f"{0:1d} {0:1d} {self.BinShift:02d} {self.DecBinShift:03d} "
+            f"{self.AdcBits:02d} {self.NShots:06d} {self.DiscrLevel:{discr_fmt}} "
+            f"{self.DeviceID:2s}{self.NCrate:01d}"
+        )
         return f"{s:<78s}\r\n"
 
     def scale_factor(self) -> float:
