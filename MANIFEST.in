@@ -6,3 +6,4 @@ include pyproject.toml
 recursive-include src *.py
 include tests/*.py
 include requirements.txt
+include API.md
