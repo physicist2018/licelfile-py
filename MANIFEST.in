@@ -5,3 +5,4 @@ include README.md
 include pyproject.toml
 recursive-include src *.py
 include tests/*.py
+include requirements.txt
