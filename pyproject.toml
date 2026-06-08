@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "licelformat"
-version = "1.4.0"
+version = "1.4.1"
 description = "Parser for Licel binary format — lidar measurement profiles (analog & photon counting)"
 readme = "README.md"
 license = "LGPL-3.0-or-later"
@@ -41,9 +41,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/physicist2018/licelfile"
-Repository = "https://github.com/physicist2018/licelfile"
-Issues = "https://github.com/physicist2018/licelfile/issues"
+Homepage = "https://github.com/physicist2018/licelfile-py"
+Repository = "https://github.com/physicist2018/licelfile-py"
+Issues = "https://github.com/physicist2018/licelfile-py/issues"
 
 [project.optional-dependencies]
 dev = [
