@@ -11,12 +11,15 @@ import zipfile
 from datetime import datetime
 from typing import Callable, Dict, Optional
 
+import numpy as np
+
 from .licelfile import (
     LicelFile,
     LicelProfilesList,
     LoadLicelFile,
     LoadLicelFileFromReader,
 )
+from .licelprofile import LicelProfile
 
 
 def _is_valid_filename(filename: str) -> bool:
@@ -138,6 +141,95 @@ class LicelPack:
             if f(licf):
                 result.Data[name] = licf
                 _update_time_range(result, licf.MeasurementStartTime)
+        return result
+
+    def average(self) -> "LicelFile":
+        """Create a new LicelFile by averaging all files in the pack.
+
+        For each channel (profile index), computes the element-wise arithmetic
+        mean of the corresponding profiles across all files in the pack.
+        Metadata (site, coordinates, laser parameters, etc.) is taken from
+        the first file in the pack.
+
+        Returns:
+            A new LicelFile with averaged profile data.
+
+        Raises:
+            ValueError: If the pack is empty or files have a different
+                        number of profiles (NDatasets).
+        """
+        if not self.Data:
+            raise ValueError("Cannot average an empty LicelPack")
+
+        # Validate that all files have the same number of profiles
+        nprofiles = None
+        for name, licf in self.Data.items():
+            if nprofiles is None:
+                nprofiles = licf.NDatasets
+            elif licf.NDatasets != nprofiles:
+                raise ValueError(
+                    f"File {name!r} has {licf.NDatasets} profiles, expected {nprofiles}"
+                )
+
+        # Take first file as template
+        first_name = next(iter(self.Data))
+        first_licf = self.Data[first_name]
+
+        result = LicelFile()
+        result.MeasurementSite = first_licf.MeasurementSite
+        result.MeasurementStartTime = self.StartTime or first_licf.MeasurementStartTime
+        result.MeasurementStopTime = self.StopTime or first_licf.MeasurementStopTime
+        result.AltitudeAboveSeaLevel = first_licf.AltitudeAboveSeaLevel
+        result.Longitude = first_licf.Longitude
+        result.Latitude = first_licf.Latitude
+        result.Zenith = first_licf.Zenith
+        result.Laser1NShots = first_licf.Laser1NShots
+        result.Laser1Freq = first_licf.Laser1Freq
+        result.Laser2NShots = first_licf.Laser2NShots
+        result.Laser2Freq = first_licf.Laser2Freq
+        result.Laser3NShots = first_licf.Laser3NShots
+        result.Laser3Freq = first_licf.Laser3Freq
+        result.NDatasets = nprofiles
+
+        # Averages profiles element-wise
+        files_list = list(self.Data.values())
+        for i in range(nprofiles):
+            # Collect data arrays and find min NDataPoints
+            data_arrays = []
+            min_npts = None
+            for licf in files_list:
+                p = licf.Profiles[i]
+                data_arrays.append(np.array(p.Data, dtype=np.float64))
+                if min_npts is None or p.NDataPoints < min_npts:
+                    min_npts = p.NDataPoints
+
+            # Truncate all to minimum length and average
+            averaged_data = np.mean([arr[:min_npts] for arr in data_arrays], axis=0)
+
+            # Copy metadata from first file's profile
+            template = first_licf.Profiles[i]
+            avg_profile = LicelProfile()
+            avg_profile.Active = template.Active
+            avg_profile.Photon = template.Photon
+            avg_profile.LaserType = template.LaserType
+            avg_profile.NDataPoints = min_npts
+            avg_profile.Reserved = template.Reserved[:]
+            avg_profile.HighVoltage = template.HighVoltage
+            avg_profile.BinWidth = template.BinWidth
+            avg_profile.Wavelength = template.Wavelength
+            avg_profile.Polarization = template.Polarization
+            avg_profile.BinShift = template.BinShift
+            avg_profile.DecBinShift = template.DecBinShift
+            avg_profile.AdcBits = template.AdcBits
+            avg_profile.NShots = template.NShots
+            avg_profile.DiscrLevel = template.DiscrLevel
+            avg_profile.DeviceID = template.DeviceID
+            avg_profile.NCrate = template.NCrate
+            avg_profile.Data = averaged_data.tolist()
+
+            result.Profiles.append(avg_profile)
+
+        result.FileLoaded = True
         return result
 
     def save(self) -> None:

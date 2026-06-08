@@ -470,3 +470,99 @@ class TestSubtractBackground:
         pack.subtract_background(method="mean", bgrRange=800.0)
         bg = 89.5
         assert abs(pack.Data["test"].Profiles[0].Data[0] - (0 - bg)) < 1e-9
+
+
+class TestAverage:
+    """LicelPack.average() — averaging profiles across files."""
+
+    def _make_file(self, site: str, data_sets: list, start_time=None):
+        """Create a LicelFile with profiles from data_sets.
+
+        Args:
+            site: Measurement site name.
+            data_sets: list of lists, each inner list is raw data for one profile.
+
+        Returns:
+            A LicelFile with the specified profiles.
+        """
+        lf = LicelFile()
+        lf.MeasurementSite = site
+        for raw in data_sets:
+            p = LicelProfile()
+            p.BinWidth = 10.0
+            p.NDataPoints = len(raw)
+            p.Data = [float(v) for v in raw]
+            p.Wavelength = 355.0
+            p.Polarization = "o"
+            p.DeviceID = "BC"
+            p.Photon = True
+            lf.Profiles.append(p)
+        lf.NDatasets = len(data_sets)
+        return lf
+
+    def test_average_two_files(self):
+        f1 = self._make_file("site1", [[1.0, 2.0, 3.0], [10.0, 20.0, 30.0]])
+        f2 = self._make_file("site2", [[3.0, 4.0, 5.0], [30.0, 40.0, 50.0]])
+
+        pack = LicelPack()
+        pack.Data["f1"] = f1
+        pack.Data["f2"] = f2
+
+        avg = pack.average()
+        assert avg.NDatasets == 2
+        assert len(avg.Profiles) == 2
+
+        # Profile 0: (1+3)/2=2, (2+4)/2=3, (3+5)/2=4
+        np.testing.assert_array_almost_equal(avg.Profiles[0].Data, [2.0, 3.0, 4.0])
+        # Profile 1: (10+30)/2=20, (20+40)/2=30, (30+50)/2=40
+        np.testing.assert_array_almost_equal(avg.Profiles[1].Data, [20.0, 30.0, 40.0])
+
+        # Metadata from first file
+        assert avg.MeasurementSite == "site1"
+        assert avg.Profiles[0].DeviceID == "BC"
+
+    def test_average_three_files(self):
+        f1 = self._make_file("s", [[1.0, 2.0, 3.0]])
+        f2 = self._make_file("s", [[4.0, 5.0, 6.0]])
+        f3 = self._make_file("s", [[7.0, 8.0, 9.0]])
+
+        pack = LicelPack()
+        pack.Data["f1"] = f1
+        pack.Data["f2"] = f2
+        pack.Data["f3"] = f3
+
+        avg = pack.average()
+        # (1+4+7)/3=4, (2+5+8)/3=5, (3+6+9)/3=6
+        np.testing.assert_array_almost_equal(avg.Profiles[0].Data, [4.0, 5.0, 6.0])
+
+    def test_average_empty_pack(self):
+        pack = LicelPack()
+        with pytest.raises(ValueError, match="empty"):
+            pack.average()
+
+    def test_average_mismatch_nprofiles(self):
+        f1 = self._make_file("s", [[1.0, 2.0]])
+        f2 = self._make_file("s", [[3.0, 4.0], [5.0, 6.0]])
+        f2.NDatasets = 2
+
+        pack = LicelPack()
+        pack.Data["f1"] = f1
+        pack.Data["f2"] = f2
+
+        with pytest.raises(ValueError, match="profiles"):
+            pack.average()
+
+    def test_average_truncates_to_shortest(self):
+        f1 = self._make_file("s", [[1.0, 2.0, 3.0, 4.0]])
+        f2 = self._make_file("s", [[5.0, 6.0, 7.0]])
+        f2.Profiles[0].NDataPoints = 3
+        f2.Profiles[0].Data = [5.0, 6.0, 7.0]
+
+        pack = LicelPack()
+        pack.Data["f1"] = f1
+        pack.Data["f2"] = f2
+
+        avg = pack.average()
+        # min NDataPoints = 3, so (1+5)/2=3, (2+6)/2=4, (3+7)/2=5
+        assert avg.Profiles[0].NDataPoints == 3
+        np.testing.assert_array_almost_equal(avg.Profiles[0].Data, [3.0, 4.0, 5.0])

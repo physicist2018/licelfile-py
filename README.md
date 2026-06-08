@@ -16,6 +16,7 @@ reference Go implementation.
 - **Round‑trip**: save → reload preserves data losslessly (unscale on write)
 - **Multi‑file** loading via glob masks and ZIP archives
 - **Filter** profiles by any predicate (`LicelFile.filter`) and files by any criteria (`LicelPack.filter`)
+- **Average** channels across multiple files with `LicelPack.average()`
 - **Save to ZIP** with configurable compression method and level
 - **Profile selection** by wavelength and channel type
 - **NumPy** arrays for all profile data — ready for further analysis
@@ -91,6 +92,21 @@ lf.subtract_background(method="dark", dark_file=dark_licel_file)
 
 # Same for all files in a pack
 pack.subtract_background(method="mean", bgrRange=8000.0)
+```
+
+### Average channels across files
+
+```python
+from licelformat import NewLicelPack
+
+pack = NewLicelPack("/data/2020/*.DAT")
+
+# Create a new LicelFile with channel-wise averages across all files
+avg_file = pack.average()
+
+# Each profile in avg_file is the element-wise mean of the
+# corresponding profiles from all files in the pack
+print(avg_file.Profiles[0].Data[:5])  # averaged data
 ```
 
 ### Filter profiles in a LicelFile
@@ -201,7 +217,7 @@ Methods: `select_certain_wavelength()`, `glue()`, `filter()`, `save()`, `to_byte
 
 Fields: `StartTime`, `StopTime`, `Data` (dict of `LicelFile`)
 
-Methods: `select_certain_wavelength()`, `filter()`, `filter_files()`, `glue()`, `save()`, `save_to_zip()`, `to_dict()`, `truncate(rmax)`, `subtract_background()`
+Methods: `select_certain_wavelength()`, `filter()`, `filter_files()`, `glue()`, `average()`, `save()`, `save_to_zip()`, `to_dict()`, `truncate(rmax)`, `subtract_background()`
 
 ### Module‑level functions
 

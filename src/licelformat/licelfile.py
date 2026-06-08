@@ -127,9 +127,13 @@ class LicelFile:
         if n2 <= n1:
             raise ValueError(f"h2 ({h2}) must be greater than h1 ({h1})")
 
+        # Convert to numpy arrays for arithmetic operations
+        p1_data = np.array(p1.Data, dtype=np.float64)
+        p2_data = np.array(p2.Data, dtype=np.float64)
+
         # Compute mean ratio k = analog / photon in the overlap zone
         with np.errstate(divide="ignore", invalid="ignore"):
-            ratio = p2.Data[n1:n2] / p1.Data[n1:n2]
+            ratio = p2_data[n1:n2] / p1_data[n1:n2]
             ratio = ratio[np.isfinite(ratio)]
         if len(ratio) == 0:
             raise ValueError("No valid ratio values in the h1..h2 interval")
@@ -158,11 +162,11 @@ class LicelFile:
         # Fill data
         data = np.empty(npts, dtype=np.float64)
         # h < h1: analog
-        data[:n1] = p2.Data[:n1]
+        data[:n1] = p2_data[:n1]
         # h1..h2: (analog + photon * k) / 2
-        data[n1:n2] = (p2.Data[n1:n2] + p1.Data[n1:n2] * k) * 0.5
+        data[n1:n2] = (p2_data[n1:n2] + p1_data[n1:n2] * k) * 0.5
         # h > h2: photon * k
-        data[n2:] = p1.Data[n2:npts] * k
+        data[n2:] = p1_data[n2:npts] * k
         glued.Data = data.tolist()
 
         self.Profiles.append(glued)
@@ -228,8 +232,8 @@ class LicelFile:
 
     def save(self, fname: str) -> None:
         """Save the Licel file to disk."""
-        with open(fname + "1", "wb") as f:
-            f.write(self.to_bytes(fname))
+        with open(fname, "wb") as f:
+            _ = f.write(self.to_bytes(fname))
 
     def to_bytes(self, fname: str) -> bytes:
         """Serialize the LicelFile to bytes (as stored in a .lic file).

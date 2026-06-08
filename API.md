@@ -273,6 +273,17 @@ Collect profiles that satisfy a predicate across all files.
 
 ---
 
+#### `average() -> LicelFile`
+
+Create a new `LicelFile` by averaging all files in the pack.
+
+For each channel (profile index), computes the element-wise arithmetic mean of the corresponding profiles across all files in the pack. If profiles have different `NDataPoints`, the shortest length is used (others are truncated). Metadata (site, coordinates, laser parameters, etc.) is taken from the first file in the pack; `StartTime`/`StopTime` are taken from the pack's own fields.
+
+**Raises:**
+- `ValueError` — If the pack is empty or files have a different number of profiles (`NDatasets`).
+
+---
+
 #### `filter_files(f: Callable[[LicelFile], bool]) -> LicelPack`
 
 Filter files using a predicate function.
