@@ -55,6 +55,11 @@ class LicelPack:
                 result.append(profile)
         return result
 
+    def truncate(self, rmax: float) -> None:
+        """Truncate all profiles in all files to a maximum range."""
+        for licf in self.Data.values():
+            licf.truncate(rmax)
+
     def filter(self, f: "Callable[[LicelFile], bool]") -> "LicelPack":
         """Filter LicelFile entries using a predicate function.
 

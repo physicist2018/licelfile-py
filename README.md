@@ -156,7 +156,7 @@ round‑trip is **lossless**.
 | `isAnalog`    | `bool`    | `True` if `DeviceID == 'BT'`   |
 | `isGlued`     | `bool`    | `True` if `DeviceID == 'BG'`   |
 
-Methods: `metadata()`, `profile()`, `scale_factor()`, `to_dict()`
+Methods: `metadata()`, `profile()`, `scale_factor()`, `to_dict()`, `truncate(rmax)`
 
 ### `licelformat.LicelFile`
 
@@ -165,13 +165,13 @@ Fields: `MeasurementSite`, `MeasurementStartTime`, `MeasurementStopTime`,
 `Laser1Freq`, `Laser2NShots`, `Laser2Freq`, `NDatasets`, `Laser3NShots`,
 `Laser3Freq`, `FileLoaded`, `Profiles`
 
-Methods: `select_certain_wavelength()`, `filter()`, `save()`, `to_bytes()`, `to_dict()`
+Methods: `select_certain_wavelength()`, `filter()`, `save()`, `to_bytes()`, `to_dict()`, `truncate(rmax)`
 
 ### `licelformat.LicelPack`
 
 Fields: `StartTime`, `StopTime`, `Data` (dict of `LicelFile`)
 
-Methods: `select_certain_wavelength()`, `filter()`, `save()`, `save_to_zip()`, `to_dict()`
+Methods: `select_certain_wavelength()`, `filter()`, `save()`, `save_to_zip()`, `to_dict()`, `truncate(rmax)`
 
 ### Module‑level functions
 

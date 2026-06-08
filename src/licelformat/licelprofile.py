@@ -103,8 +103,8 @@ class LicelProfile:
 
     @property
     def isPhoton(self) -> bool:
-        """True if this is a photon counting channel (DeviceID == 'BC')."""
-        return self.DeviceID == "BC"
+        """True if this is a photon counting channel (DeviceID == 'BC' and Photon==True)."""
+        return self.DeviceID == "BC" and self.Photon
 
     @property
     def isAnalog(self) -> bool:
@@ -115,6 +115,17 @@ class LicelProfile:
     def isGlued(self) -> bool:
         """True if this is a glued (combined) channel (DeviceID == 'BG')."""
         return self.DeviceID == "BG"
+
+    def truncate(self, rmax: float) -> None:
+        """Truncate profile data to a maximum range.
+
+        Args:
+            rmax: Maximum range in meters. Points beyond this range are removed.
+        """
+        n = int(rmax / self.BinWidth) if self.BinWidth > 0 else self.NDataPoints
+        if n < self.NDataPoints:
+            self.NDataPoints = n
+            self.Data = self.Data[:n]
 
     def metadata(self) -> str:
         """Return the metadata string for this profile."""
