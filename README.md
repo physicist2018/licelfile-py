@@ -80,12 +80,15 @@ at_532 = lf.filter(lambda p: p.Wavelength == 532.0)
 
 ```python
 # Keep only files from a specific site
-site_pack = pack.filter(lambda lf: lf.MeasurementSite == "Vladivos")
-
-# Keep only files with profiles at 355 nm
-has_355 = pack.filter(lambda lf: lf.select_certain_wavelength(True, 355.0).Wavelength != 0)
+site_pack = pack.filter_files(lambda lf: lf.MeasurementSite == "Vladivos")
 
 print(site_pack.StartTime, site_pack.StopTime)  # recomputed from filtered set
+
+# Collect all photon‑counting profiles across all files
+photon_profiles = pack.filter(lambda p: p.Photon)
+
+# Collect all 532 nm profiles
+at_532_profiles = pack.filter(lambda p: p.Wavelength == 532.0)
 ```
 
 ### Load from a ZIP archive
@@ -171,7 +174,7 @@ Methods: `select_certain_wavelength()`, `filter()`, `save()`, `to_bytes()`, `to_
 
 Fields: `StartTime`, `StopTime`, `Data` (dict of `LicelFile`)
 
-Methods: `select_certain_wavelength()`, `filter()`, `save()`, `save_to_zip()`, `to_dict()`, `truncate(rmax)`
+Methods: `select_certain_wavelength()`, `filter()`, `filter_files()`, `save()`, `save_to_zip()`, `to_dict()`, `truncate(rmax)`
 
 ### Module‑level functions
 

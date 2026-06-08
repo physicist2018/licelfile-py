@@ -60,7 +60,23 @@ class LicelPack:
         for licf in self.Data.values():
             licf.truncate(rmax)
 
-    def filter(self, f: "Callable[[LicelFile], bool]") -> "LicelPack":
+    def filter(self, f: "Callable[[LicelProfile], bool]") -> LicelProfilesList:
+        """Collect profiles that satisfy a predicate across all files.
+
+        Args:
+            f: A callable that takes a LicelProfile and returns True
+               to include it in the result.
+
+        Returns:
+            A flat list of LicelProfile objects for which the predicate
+            returned True.
+        """
+        result: LicelProfilesList = []
+        for licf in self.Data.values():
+            result.extend(p for p in licf.Profiles if f(p))
+        return result
+
+    def filter_files(self, f: "Callable[[LicelFile], bool]") -> "LicelPack":
         """Filter LicelFile entries using a predicate function.
 
         Args:

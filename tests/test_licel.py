@@ -279,42 +279,63 @@ class TestLicelPack:
         assert d["start_time"] is not None
         assert len(d["data"]) == 1
 
-    def test_filter_all_match(self):
-        """filter with predicate that always returns True returns full copy."""
+    def test_filter_profiles(self):
+        """filter collects all profiles from matching files."""
         pack = NewLicelPack(TEST_FILE)
-        result = pack.filter(lambda lf: True)
+        result = pack.filter(lambda p: True)
+        assert isinstance(result, list)
+        expected = sum(len(lf.Profiles) for lf in pack.Data.values())
+        assert len(result) == expected
+
+    def test_filter_profiles_none(self):
+        """filter with False predicate returns empty list."""
+        pack = NewLicelPack(TEST_FILE)
+        result = pack.filter(lambda p: False)
+        assert result == []
+
+    def test_filter_profiles_photon(self):
+        """filter collects only photon profiles."""
+        pack = NewLicelPack(TEST_FILE)
+        result = pack.filter(lambda p: p.Photon)
+        for profile in result:
+            assert profile.Photon is True
+
+    def test_filter_files_all_match(self):
+        """filter_files with predicate that always returns True returns full copy."""
+        pack = NewLicelPack(TEST_FILE)
+        result = pack.filter_files(lambda lf: True)
         assert isinstance(result, LicelPack)
         assert len(result.Data) == len(pack.Data)
         assert result.StartTime == pack.StartTime
         assert result.StopTime == pack.StopTime
 
-    def test_filter_none_match(self):
-        """filter with predicate that always returns False returns empty pack."""
+    def test_filter_files_none_match(self):
+        """filter_files with predicate that always returns False returns empty pack."""
         pack = NewLicelPack(TEST_FILE)
-        result = pack.filter(lambda lf: False)
+        result = pack.filter_files(lambda lf: False)
         assert isinstance(result, LicelPack)
         assert len(result.Data) == 0
         assert result.StartTime is None
         assert result.StopTime is None
 
-    def test_filter_by_site(self):
-        """filter selects files by measurement site."""
+    def test_filter_files_by_site(self):
+        """filter_files selects files by measurement site."""
         pack = NewLicelPack(TEST_FILE)
         site = pack.Data[list(pack.Data.keys())[0]].MeasurementSite
-        result = pack.filter(lambda lf: lf.MeasurementSite == site)
+        result = pack.filter_files(lambda lf: lf.MeasurementSite == site)
         assert len(result.Data) == 1
-        result = pack.filter(lambda lf: lf.MeasurementSite == "Nonexistent")
+        result = pack.filter_files(lambda lf: lf.MeasurementSite == "Nonexistent")
         assert len(result.Data) == 0
 
-    def test_filter_returns_new_pack(self):
-        """filter returns a new LicelPack, not the same object."""
+    def test_filter_files_returns_new_pack(self):
+        """filter_files returns a new LicelPack, not the same object."""
         pack = NewLicelPack(TEST_FILE)
-        result = pack.filter(lambda lf: True)
+        result = pack.filter_files(lambda lf: True)
         assert result is not pack
 
-    def test_filter_preserves_references(self):
-        """filter shares the same LicelFile objects (shallow copy)."""
+    def test_filter_files_preserves_references(self):
+        """filter_files shares the same LicelFile objects (shallow copy)."""
         pack = NewLicelPack(TEST_FILE)
-        result = pack.filter(lambda lf: True)
+        result = pack.filter_files(lambda lf: True)
         for key in result.Data:
             assert result.Data[key] is pack.Data[key]
