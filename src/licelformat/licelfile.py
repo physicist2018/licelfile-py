@@ -1,0 +1,277 @@
+"""
+LicelFile — structure representing a single Licel measurement.
+
+Provides loading, saving, and querying functionality for Licel format files.
+"""
+
+import os
+import struct
+from datetime import datetime
+from io import BufferedReader, BytesIO, RawIOBase
+from typing import IO, List, Optional
+
+import numpy as np
+
+from .licelprofile import LICEL_MAX_RESERVED, LicelProfile, _str2float, _str2int
+
+LicelProfilesList = List[LicelProfile]
+
+
+class LicelFile:
+    """Structure representing a single Licel measurement."""
+
+    __slots__ = (
+        "MeasurementSite",
+        "MeasurementStartTime",
+        "MeasurementStopTime",
+        "AltitudeAboveSeaLevel",
+        "Longitude",
+        "Latitude",
+        "Zenith",
+        "Laser1NShots",
+        "Laser1Freq",
+        "Laser2NShots",
+        "Laser2Freq",
+        "NDatasets",
+        "Laser3NShots",
+        "Laser3Freq",
+        "FileLoaded",
+        "Profiles",
+    )
+
+    def __init__(self):
+        self.MeasurementSite: str = ""
+        self.MeasurementStartTime: Optional[datetime] = None
+        self.MeasurementStopTime: Optional[datetime] = None
+        self.AltitudeAboveSeaLevel: float = 0.0
+        self.Longitude: float = 0.0
+        self.Latitude: float = 0.0
+        self.Zenith: float = 0.0
+        self.Laser1NShots: int = 0
+        self.Laser1Freq: int = 0
+        self.Laser2NShots: int = 0
+        self.Laser2Freq: int = 0
+        self.NDatasets: int = 0
+        self.Laser3NShots: int = 0
+        self.Laser3Freq: int = 0
+        self.FileLoaded: bool = False
+        self.Profiles: LicelProfilesList = []
+
+    def select_certain_wavelength(
+        self, is_photon: bool, wavelength: float
+    ) -> LicelProfile:
+        """Select a profile by its wavelength and type."""
+        for profile in self.Profiles:
+            if profile.Photon == is_photon and profile.Wavelength == wavelength:
+                return profile
+        return LicelProfile()
+
+    def save(self, fname: str) -> None:
+        """Save the Licel file to disk."""
+        with open(fname + "1", "wb") as f:
+            f.write(self.to_bytes(fname))
+
+    def to_bytes(self, fname: str) -> bytes:
+        """Serialize the LicelFile to bytes (as stored in a .lic file).
+
+        Args:
+            fname: Filename to embed in the first header line.
+
+        Returns:
+            Complete file content as bytes.
+        """
+        buf = BytesIO()
+        buf.write(self._format_first_line(fname).encode("latin-1"))
+        buf.write(self._format_second_line().encode("latin-1"))
+        buf.write(self._format_third_line().encode("latin-1"))
+        for profile in self.Profiles:
+            buf.write(profile.metadata().encode("latin-1"))
+        buf.write(b"\r\n")
+        for profile in self.Profiles:
+            buf.write(profile.profile())
+        return buf.getvalue()
+
+    def _format_first_line(self, fname: str) -> str:
+        """Return the first line of a LICEL file."""
+        return f" {fname:<77s}\r\n"
+
+    def _format_second_line(self) -> str:
+        """Return the second line of a LICEL file."""
+        s = (
+            f" {self.MeasurementSite} "
+            f"{self.MeasurementStartTime.strftime('%d/%m/%Y')} "
+            f"{self.MeasurementStartTime.strftime('%H:%M:%S')} "
+            f"{self.MeasurementStopTime.strftime('%d/%m/%Y')} "
+            f"{self.MeasurementStopTime.strftime('%H:%M:%S')} "
+            f"{self.AltitudeAboveSeaLevel:04.0f} "
+            f"{self.Longitude:06.1f} "
+            f"{self.Latitude:06.1f} "
+            f"{self.Zenith:02.0f}"
+        )
+        return f"{s:<78s}\r\n"
+
+    def _format_third_line(self) -> str:
+        """Return the third line of a LICEL file."""
+        s = (
+            f" {self.Laser1NShots:07d} {self.Laser1Freq:04d} "
+            f"{self.Laser2NShots:07d} {self.Laser2Freq:04d} "
+            f"{self.NDatasets:02d} {self.Laser3NShots:07d} "
+            f"{self.Laser3Freq:04d}"
+        )
+        return f"{s:<78s}\r\n"
+
+    def to_dict(self) -> dict:
+        """Convert LicelFile to a dictionary (for JSON serialization)."""
+        return {
+            "location": self.MeasurementSite,
+            "start_time": (
+                self.MeasurementStartTime.isoformat()
+                if self.MeasurementStartTime
+                else None
+            ),
+            "stop_time": (
+                self.MeasurementStopTime.isoformat()
+                if self.MeasurementStopTime
+                else None
+            ),
+            "lidar_altitude": self.AltitudeAboveSeaLevel,
+            "longitude": self.Longitude,
+            "latitude": self.Latitude,
+            "zenith": self.Zenith,
+            "laser1_nshots": self.Laser1NShots,
+            "laser1_freq": self.Laser1Freq,
+            "laser2_nshots": self.Laser2NShots,
+            "laser2_freq": self.Laser2Freq,
+            "dataset_count": self.NDatasets,
+            "laser3_nshots": self.Laser3NShots,
+            "laser3_freq": self.Laser3Freq,
+            "datasets": [p.to_dict() for p in self.Profiles],
+        }
+
+    def __repr__(self) -> str:
+        return (
+            f"LicelFile(site={self.MeasurementSite}, "
+            f"start={self.MeasurementStartTime}, "
+            f"profiles={len(self.Profiles)})"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------------
+
+
+def _parse_time(s: str) -> datetime:
+    """Parse datetime string in format 'dd/mm/yyyy hh:mm:ss'."""
+    return datetime.strptime(s, "%d/%m/%Y %H:%M:%S")
+
+
+def _read_and_trim_line(r: BufferedReader) -> str:
+    """Read a line from reader and trim right-side whitespace."""
+    line = r.readline()
+    if not line:
+        raise EOFError("Unexpected end of file while reading header line")
+    return line.decode("latin-1").rstrip("\t\r\n ")
+
+
+def _skip_crlf(r: BufferedReader) -> None:
+    """Skip CR+LF (2 bytes) from reader."""
+    crlf = r.read(2)
+    if len(crlf) < 2:
+        raise EOFError("Unexpected end of file while skipping CRLF")
+
+
+def _bytes_to_float64_array(b: bytes) -> np.ndarray:
+    """Convert raw bytes to numpy float64 array (little-endian int32 → float64)."""
+    # Interpret bytes as little-endian int32, then cast to float64
+    arr = np.frombuffer(b, dtype=np.int32).astype(np.float64)
+    return arr
+
+
+# ---------------------------------------------------------------------------
+# Main loading functions
+# ---------------------------------------------------------------------------
+
+
+def LoadLicelFile(fname: str) -> LicelFile:
+    """Load a LicelFile from the specified file path."""
+    with open(fname, "rb") as f:
+        return _load_licel_file_from_buffered_reader(f)
+
+
+def LoadLicelFileFromReader(stream: IO[bytes], size: int = 0) -> LicelFile:
+    """Load a LicelFile from a binary reader/stream."""
+    # Wrap in BufferedReader if needed
+    if isinstance(stream, BufferedReader):
+        r = stream
+    else:
+        r = BufferedReader(stream)  # type: ignore[arg-type]
+    return _load_licel_file_from_buffered_reader(r)
+
+
+def _load_licel_file_from_buffered_reader(r: BufferedReader) -> LicelFile:
+    """Core loading logic from a buffered binary reader."""
+    licf = LicelFile()
+
+    # Skip first line (contains filename or is empty)
+    _read_and_trim_line(r)
+
+    # Second line: basic information
+    header = _read_and_trim_line(r)
+    tmp = header.split()
+
+    licf.MeasurementSite = tmp[0]
+    licf.MeasurementStartTime = _parse_time(tmp[1] + " " + tmp[2])
+    licf.MeasurementStopTime = _parse_time(tmp[3] + " " + tmp[4])
+    licf.AltitudeAboveSeaLevel = _str2float(tmp[5])
+    licf.Longitude = _str2float(tmp[6])
+    licf.Latitude = _str2float(tmp[7])
+    licf.Zenith = _str2float(tmp[8])
+
+    # Third line: laser parameters
+    header = _read_and_trim_line(r)
+    tmp = header.split()
+    licf.Laser1NShots = _str2int(tmp[0])
+    licf.Laser1Freq = _str2int(tmp[1])
+    licf.Laser2NShots = _str2int(tmp[2])
+    licf.Laser2Freq = _str2int(tmp[3])
+    licf.NDatasets = _str2int(tmp[4])
+    licf.Laser3NShots = _str2int(tmp[5])
+    licf.Laser3Freq = _str2int(tmp[6])
+
+    # Profiles (headers)
+    licf.Profiles = []
+    for _ in range(licf.NDatasets):
+        header = _read_and_trim_line(r)
+        licf.Profiles.append(LicelProfile(header))
+
+    # After headers — binary data
+    _skip_crlf(r)
+
+    for i in range(licf.NDatasets):
+        n_bytes = licf.Profiles[i].NDataPoints * 4
+        pr_tmp = r.read(n_bytes)
+        if len(pr_tmp) < n_bytes:
+            raise EOFError("Error reading binary data: unexpected end of file")
+
+        licf.Profiles[i].Data = _bytes_to_float64_array(pr_tmp)
+
+        # Apply scaling
+        if not licf.Profiles[i].Photon:
+            # Analog channel
+            adc_scale = 1 << licf.Profiles[i].AdcBits
+            scale = (
+                licf.Profiles[i].DiscrLevel
+                * 1000.0
+                / float(adc_scale * licf.Profiles[i].NShots)
+            )
+        else:
+            # Photon counting channel
+            scale = 1.0 / (float(licf.Profiles[i].NShots) * 0.05)
+
+        licf.Profiles[i].Data *= scale
+
+        _skip_crlf(r)
+
+    licf.FileLoaded = True
+    return licf

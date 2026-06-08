@@ -1,0 +1,7 @@
+# licelformat — Python package for Licel binary format
+
+include LICENSE
+include README.md
+include pyproject.toml
+recursive-include src *.py
+include tests/*.py
