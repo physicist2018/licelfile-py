@@ -101,6 +101,21 @@ class LicelProfile:
         self.DeviceID = items[15][:2]
         self.NCrate = _str2int(items[15][2:])
 
+    @property
+    def isPhoton(self) -> bool:
+        """True if this is a photon counting channel (DeviceID == 'BC')."""
+        return self.DeviceID == "BC"
+
+    @property
+    def isAnalog(self) -> bool:
+        """True if this is an analog channel (DeviceID == 'BT')."""
+        return self.DeviceID == "BT"
+
+    @property
+    def isGlued(self) -> bool:
+        """True if this is a glued (combined) channel (DeviceID == 'BG')."""
+        return self.DeviceID == "BG"
+
     def metadata(self) -> str:
         """Return the metadata string for this profile."""
         discr_fmt = "05.4f" if self.Photon else "05.3f"

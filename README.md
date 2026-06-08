@@ -140,7 +140,7 @@ round‑trip is **lossless**.
 | `HighVoltage` | `int`     | PMT high voltage (V)          |
 | `BinWidth`    | `float`   | Range bin width (m)            |
 | `Wavelength`  | `float`   | Laser wavelength (nm)          |
-| `Polarization`| `str`     | "o", "s", or ""                |
+| `Polarization`| `str`     | "o", "s", or "p"                |
 | `BinShift`    | `int`     | Bin shift                      |
 | `DecBinShift` | `int`     | Decimal bin shift              |
 | `AdcBits`     | `int`     | ADC resolution (bits)          |
@@ -149,6 +149,12 @@ round‑trip is **lossless**.
 | `DeviceID`    | `str`     | 2‑char device ID               |
 | `NCrate`      | `int`     | Crate slot number              |
 | `Data`        | `np.ndarray` | Scaled float64 profile data  |
+
+| Property      | Type      | Description                    |
+|---------------|-----------|--------------------------------|
+| `isPhoton`    | `bool`    | `True` if `DeviceID == 'BC'`   |
+| `isAnalog`    | `bool`    | `True` if `DeviceID == 'BT'`   |
+| `isGlued`     | `bool`    | `True` if `DeviceID == 'BG'`   |
 
 Methods: `metadata()`, `profile()`, `scale_factor()`, `to_dict()`
 
