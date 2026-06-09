@@ -138,10 +138,14 @@ pip install licelformat[netcdf]
 ```python
 from licelformat import to_netcdf, from_netcdf
 
-# Save
+# Save (default: NETCDF4 — HDF5-based, supports compression + native strings)
 to_netcdf(pack, "measurements.nc")
 
-# Load back
+# Save as NetCDF classic (v3) format
+# Use "NETCDF3_64BIT" for files >2 GB
+to_netcdf(pack, "measurements.nc3", format="NETCDF3_CLASSIC")
+
+# Load back (auto-detects format)
 restored = from_netcdf("measurements.nc")
 ```
 

@@ -2,6 +2,7 @@
 NetCDF I/O for LicelPack.
 
 Provides save / load of LicelPack data in NetCDF format (CF-1.8 conventions).
+Supports NETCDF4, NETCDF3_CLASSIC, and NETCDF3_64BIT formats.
 Requires the optional ``netCDF4`` package.
 """
 
@@ -18,20 +19,40 @@ __all__ = ["to_netcdf", "from_netcdf"]
 
 _NC_VERSION: int = 1
 
+# Supported NetCDF formats
+_NETCDF3_FORMATS = frozenset({"NETCDF3_CLASSIC", "NETCDF3_64BIT"})
+_NETCDF4_FORMATS = frozenset({"NETCDF4"})
 
-def to_netcdf(pack: LicelPack, path: str) -> None:
+
+def to_netcdf(
+    pack: LicelPack,
+    path: str,
+    format: str = "NETCDF4",
+) -> None:
     """Save a LicelPack to a NetCDF file.
 
     Args:
         pack: The LicelPack to save.
         path: Output file path (e.g. "measurements.nc").
+        format: NetCDF format string.
+                One of "NETCDF4" (default, HDF5-based, supports compression
+                and native strings), "NETCDF3_CLASSIC" (classic format), or
+                "NETCDF3_64BIT" (classic with 64-bit offsets).
 
     Raises:
         ImportError: If netCDF4 is not installed.
-        ValueError: If the pack is empty or has no profiles.
+        ValueError: If the pack is empty, has no profiles, or the format
+                    string is unrecognised.
     """
     if not pack.Data:
         raise ValueError("Cannot save an empty LicelPack to NetCDF")
+
+    _valid_formats = _NETCDF3_FORMATS | _NETCDF4_FORMATS
+    if format not in _valid_formats:
+        raise ValueError(
+            f"Unsupported NetCDF format {format!r}. "
+            f"Choose from {sorted(_valid_formats)}"
+        )
 
     try:
         from netCDF4 import Dataset
@@ -39,6 +60,8 @@ def to_netcdf(pack: LicelPack, path: str) -> None:
         raise ImportError(
             "netCDF4 is required for NetCDF I/O. Install it with: pip install netCDF4"
         )
+
+    is_nc3 = format in _NETCDF3_FORMATS
 
     # Collect all profiles with file index
     file_names = list(pack.Data.keys())
@@ -55,7 +78,21 @@ def to_netcdf(pack: LicelPack, path: str) -> None:
     max_npts = max(p.NDataPoints for _, p in profiles)
     bw = profiles[0][1].BinWidth  # use first profile's bin width for range
 
-    with Dataset(path, "w", format="NETCDF4") as ds:
+    # For NetCDF3, compute max string length across all string fields
+    if is_nc3:
+        _all_strings = list(file_names)
+        _all_strings.extend(pack.Data[n].MeasurementSite for n in file_names)
+        for _, p in profiles:
+            _all_strings.append(p.Polarization)
+            _all_strings.append(p.DeviceID)
+        max_str_len = 0
+        for s in _all_strings:
+            if s is not None:
+                max_str_len = max(max_str_len, len(s))
+        if max_str_len < 1:
+            max_str_len = 1  # at least 1 char for empty strings
+
+    with Dataset(path, "w", format=format) as ds:
         # --- Global attributes ---
         ds.setncattr("Conventions", "CF-1.8")
         ds.setncattr("source", f"licelformat v{_NC_VERSION}")
@@ -65,6 +102,8 @@ def to_netcdf(pack: LicelPack, path: str) -> None:
         ds.createDimension("file", n_files := len(file_names))
         ds.createDimension("profile", n_profiles)
         ds.createDimension("range", max_npts)
+        if is_nc3:
+            ds.createDimension("max_str_len", max_str_len)
 
         # ---- Range variable ----
         range_var = ds.createVariable(
@@ -77,12 +116,21 @@ def to_netcdf(pack: LicelPack, path: str) -> None:
         range_var.units = "meters"
         range_var[:] = np.arange(max_npts, dtype=np.float64) * bw
 
-        # ---- File-level variables ----
-        file_name_var = ds.createVariable("file_name", str, ("file",))
-        file_name_var.long_name = "original file name"
+        # ---- File-level variables (NetCDF3: char arrays; NETCDF4: native str) ----
+        if is_nc3:
+            file_name_var = ds.createVariable(
+                "file_name", "S1", ("file", "max_str_len")
+            )
+            file_name_var.long_name = "original file name"
 
-        site_var = ds.createVariable("site", str, ("file",))
-        site_var.long_name = "measurement site"
+            site_var = ds.createVariable("site", "S1", ("file", "max_str_len"))
+            site_var.long_name = "measurement site"
+        else:
+            file_name_var = ds.createVariable("file_name", str, ("file",))
+            file_name_var.long_name = "original file name"
+
+            site_var = ds.createVariable("site", str, ("file",))
+            site_var.long_name = "measurement site"
 
         start_time_var = ds.createVariable(
             "start_time",
@@ -137,8 +185,13 @@ def to_netcdf(pack: LicelPack, path: str) -> None:
         for fi, name in enumerate(file_names):
             lf = pack.Data[name]
 
-            file_name_var[fi] = name
-            site_var[fi] = lf.MeasurementSite
+            if is_nc3:
+                _set_char_var(file_name_var, fi, name, max_str_len)
+                _set_char_var(site_var, fi, lf.MeasurementSite, max_str_len)
+            else:
+                file_name_var[fi] = name
+                site_var[fi] = lf.MeasurementSite
+
             start_time_var[fi] = _dt2ts(lf.MeasurementStartTime)
             stop_time_var[fi] = _dt2ts(lf.MeasurementStopTime)
             lon_var[fi] = lf.Longitude
@@ -164,8 +217,14 @@ def to_netcdf(pack: LicelPack, path: str) -> None:
         wvl_var.long_name = "laser wavelength"
         wvl_var.units = "nanometers"
 
-        pol_var = ds.createVariable("polarization", str, ("profile",))
-        pol_var.long_name = "polarization channel"
+        if is_nc3:
+            pol_var = ds.createVariable(
+                "polarization", "S1", ("profile", "max_str_len")
+            )
+            pol_var.long_name = "polarization channel"
+        else:
+            pol_var = ds.createVariable("polarization", str, ("profile",))
+            pol_var.long_name = "polarization channel"
 
         bw_var = ds.createVariable("bin_width", "f8", ("profile",), fill_value=np.nan)
         bw_var.long_name = "range bin width"
@@ -174,8 +233,14 @@ def to_netcdf(pack: LicelPack, path: str) -> None:
         nshots_var = ds.createVariable("nshots", "i4", ("profile",), fill_value=-1)
         nshots_var.long_name = "number of laser shots"
 
-        device_id_var = ds.createVariable("device_id", str, ("profile",))
-        device_id_var.long_name = "device identifier"
+        if is_nc3:
+            device_id_var = ds.createVariable(
+                "device_id", "S1", ("profile", "max_str_len")
+            )
+            device_id_var.long_name = "device identifier"
+        else:
+            device_id_var = ds.createVariable("device_id", str, ("profile",))
+            device_id_var.long_name = "device identifier"
 
         is_photon_var = ds.createVariable(
             "is_photon", "i4", ("profile",), fill_value=-1
@@ -220,14 +285,16 @@ def to_netcdf(pack: LicelPack, path: str) -> None:
         npoints_var.long_name = "number of valid data points"
 
         # ---- Signal data ----
-        signal_var = ds.createVariable(
-            "signal",
-            "f8",
-            ("profile", "range"),
-            fill_value=np.nan,
-            zlib=True,
-            complevel=4,
-        )
+        signal_kwargs: dict = {
+            "datatype": "f8",
+            "dimensions": ("profile", "range"),
+            "fill_value": np.nan,
+        }
+        if not is_nc3:
+            signal_kwargs["zlib"] = True
+            signal_kwargs["complevel"] = 4
+
+        signal_var = ds.createVariable("signal", **signal_kwargs)
         signal_var.long_name = "lidar signal"
         if profiles[0][1].Photon:
             signal_var.units = "MHz"
@@ -239,10 +306,16 @@ def to_netcdf(pack: LicelPack, path: str) -> None:
         for pi, (fi, p) in enumerate(profiles):
             prof_file_index_var[pi] = fi
             wvl_var[pi] = p.Wavelength
-            pol_var[pi] = p.Polarization
+
+            if is_nc3:
+                _set_char_var(pol_var, pi, p.Polarization, max_str_len)
+                _set_char_var(device_id_var, pi, p.DeviceID, max_str_len)
+            else:
+                pol_var[pi] = p.Polarization
+                device_id_var[pi] = p.DeviceID
+
             bw_var[pi] = p.BinWidth
             nshots_var[pi] = p.NShots
-            device_id_var[pi] = p.DeviceID
             is_photon_var[pi] = 1 if p.Photon else 0
             discr_var[pi] = p.DiscrLevel
             adc_bits_var[pi] = p.AdcBits
@@ -259,6 +332,9 @@ def to_netcdf(pack: LicelPack, path: str) -> None:
 
 def from_netcdf(path: str) -> LicelPack:
     """Load a LicelPack from a NetCDF file created by to_netcdf().
+
+    Handles both NETCDF4 (native string) and NetCDF3 (character array) formats
+    transparently.
 
     Args:
         path: Path to the .nc file.
@@ -285,15 +361,19 @@ def from_netcdf(path: str) -> LicelPack:
 
         signal = ds.variables["signal"][:]
 
+        # Detect whether strings are stored as native str or char arrays
+        # (NetCDF3 writes char arrays, NETCDF4 writes native str)
+        is_nc3 = "max_str_len" in ds.dimensions
+
         # Reconstruct files and profiles
         file_map: dict[int, str] = {}
 
         for fi in range(n_files):
-            name = str(ds.variables["file_name"][fi])
+            name = _get_str_var(ds.variables["file_name"], fi, is_nc3)
             file_map[fi] = name
 
             lf = LicelFile()
-            lf.MeasurementSite = str(ds.variables["site"][fi])
+            lf.MeasurementSite = _get_str_var(ds.variables["site"], fi, is_nc3)
             lf.MeasurementStartTime = _ts2dt(
                 float(ds.variables["start_time"][fi])
                 if not np.ma.is_masked(ds.variables["start_time"][fi])
@@ -323,10 +403,10 @@ def from_netcdf(path: str) -> LicelPack:
             fi = int(ds.variables["file_index"][pi])
             p = LicelProfile()
             p.Wavelength = float(ds.variables["wavelength"][pi])
-            p.Polarization = str(ds.variables["polarization"][pi])
+            p.Polarization = _get_str_var(ds.variables["polarization"], pi, is_nc3)
             p.BinWidth = float(ds.variables["bin_width"][pi])
             p.NShots = int(ds.variables["nshots"][pi])
-            p.DeviceID = str(ds.variables["device_id"][pi])
+            p.DeviceID = _get_str_var(ds.variables["device_id"], pi, is_nc3)
             p.Photon = bool(int(ds.variables["is_photon"][pi]))
             p.DiscrLevel = float(ds.variables["discr_level"][pi])
             p.AdcBits = int(ds.variables["adc_bits"][pi])
@@ -365,8 +445,46 @@ def from_netcdf(path: str) -> LicelPack:
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers (duplicated to avoid circular imports)
+# Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _set_char_var(
+    var: "netCDF4.Variable",  # noqa: F821
+    index: int,
+    value: Optional[str],
+    max_len: int,
+) -> None:
+    """Write a string into a NetCDF3 character-array variable at *index*."""
+    if value is None:
+        value = ""
+    arr = np.frombuffer(value.encode("utf-8"), dtype="S1")
+    n = min(len(arr), max_len)
+    var[index, :n] = arr[:n]
+    # remaining chars are already fill-value (\\x00) from the initial allocation
+
+
+def _get_str_var(
+    var: "netCDF4.Variable",  # noqa: F821
+    index: int,
+    is_nc3: bool,
+) -> str:
+    """Read a string from a variable at *index*.
+
+    Handles both native str (NETCDF4) and character array (NetCDF3) storage.
+    """
+    if is_nc3:
+        raw = var[index, :]
+        if isinstance(raw, np.ma.MaskedArray):
+            raw = raw.filled(b"\x00")
+        # raw is a numpy array of bytes (S1); decode to string
+        chars = raw.tobytes().rstrip(b"\x00").decode("utf-8", errors="replace")
+        return chars
+    else:
+        s = var[index]
+        if isinstance(s, bytes):
+            return s.decode("utf-8", errors="replace")
+        return str(s) if s is not None else ""
 
 
 def _dt2ts(dt: Optional[datetime]) -> float:

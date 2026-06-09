@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.6.0] — 2026-06-09
+
+### Added
+- `to_netcdf()` `format` parameter — supports `"NETCDF4"` (default, HDF5-based),
+  `"NETCDF3_CLASSIC"`, and `"NETCDF3_64BIT"`
+- NetCDF3 strings stored as character arrays (`S1` with `max_str_len` dimension)
+  since the format has no native string type
+- `from_netcdf()` auto-detects NetCDF3 vs NETCDF4 and reads strings accordingly
+- Validation: invalid `format` raises `ValueError` with list of accepted formats
+
+### Changed
+- `to_netcdf(pack, path)` now accepts optional `format=...` keyword argument
+  (default `"NETCDF4"`, fully backward-compatible)
+- NetCDF3 output omits zlib compression (not supported by the format)
+
 ## [1.5.0] — 2026-06-09
 
 ### Added

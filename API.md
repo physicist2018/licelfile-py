@@ -8,7 +8,7 @@
 | `LoadLicelFileFromReader(stream, size=0) -> LicelFile` | Load from a binary stream |
 | `NewLicelPack(mask: str) -> LicelPack` | Load all files matching a glob pattern |
 | `NewLicelPackFromZip(path: str) -> LicelPack` | Load all valid files from a ZIP archive |
-| `to_netcdf(pack: LicelPack, path: str) -> None` | Save a `LicelPack` to NetCDF (CF-1.8). Requires `netCDF4`. |
+| `to_netcdf(pack: LicelPack, path: str, format: str = "NETCDF4") -> None` | Save a `LicelPack` to NetCDF (CF-1.8). `format` can be `"NETCDF4"` (default), `"NETCDF3_CLASSIC"`, or `"NETCDF3_64BIT"`. Requires `netCDF4`. |
 | `from_netcdf(path: str) -> LicelPack` | Load a `LicelPack` from a NetCDF file. Requires `netCDF4`. |
 
 ---
