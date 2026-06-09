@@ -5,9 +5,11 @@
 | Function | Description |
 |---|---|
 | `LoadLicelFile(path: str) -> LicelFile` | Load a single Licel file from disk |
-| `LoadLicelFileFromReader(stream: IO[bytes], size: int = 0) -> LicelFile` | Load from a binary stream |
+| `LoadLicelFileFromReader(stream, size=0) -> LicelFile` | Load from a binary stream |
 | `NewLicelPack(mask: str) -> LicelPack` | Load all files matching a glob pattern |
 | `NewLicelPackFromZip(path: str) -> LicelPack` | Load all valid files from a ZIP archive |
+| `to_netcdf(pack: LicelPack, path: str) -> None` | Save a `LicelPack` to NetCDF (CF-1.8). Requires `netCDF4`. |
+| `from_netcdf(path: str) -> LicelPack` | Load a `LicelPack` from a NetCDF file. Requires `netCDF4`. |
 
 ---
 
@@ -159,13 +161,15 @@ Finds a photon channel (`isPhoton == True`) and an analog channel (`isAnalog == 
 | `h1 ≤ h ≤ h2` | `(analog + photon × k) / 2` |
 | `h > h2` | `photon × k` |
 
+If a glued profile with the same `wavelength` and `polarization` already exists (i.e. `DeviceID == "BG"`), it is **updated in-place** instead of creating a new one. This means calling `glue()` twice with the same wavelength/polarization does not duplicate the profile — the data is overwritten and `NDatasets` is not incremented.
+
 **Args:**
 - `wavelength` — Laser wavelength in nm.
 - `polarization` — Polarization string (`"o"`, `"s"`, or `""`).
 - `h1` — Start of merge interval (meters).
 - `h2` — End of merge interval (meters).
 
-**Returns:** Newly created glued `LicelProfile` (with `DeviceID == "BG"`), appended to `self.Profiles`.
+**Returns:** The glued `LicelProfile` (with `DeviceID == "BG"`).
 
 **Raises:**
 - `ValueError` — If no matching pair is found, `BinWidth` is zero, `h2 ≤ h1`, or no valid ratio values in the interval.
@@ -256,9 +260,11 @@ Subtract background from all profiles in all files of the pack.
 
 #### `glue(wavelength: float, polarization: str, h1: float, h2: float) -> LicelPack`
 
-Glue analog and photon channels in each file of the pack.
+Glue analog and photon channels in all files of the pack (in-place).
 
-**Returns:** A new `LicelPack` containing only the files where glue succeeded. Files that don't have a matching photon/analog pair are silently skipped.
+For each file that has both a photon and an analog channel with the given `wavelength` and `polarization`, creates (or updates) a glued profile. Files that don't have a matching pair are **removed** from the pack. `StartTime` and `StopTime` are recomputed from the remaining files.
+
+**Returns:** `self` (for method chaining).
 
 ---
 
@@ -298,6 +304,29 @@ Filter files using a predicate function.
 #### `save() -> None`
 
 Save all files in the pack to disk. Delegates to `LicelFile.save()` for each file.
+
+---
+
+#### `to_npz(path: str) -> None`
+
+Save the pack to a compressed NumPy `.npz` archive. Contains structured arrays with metadata and a 2D data matrix (NaN-padded to the longest profile).
+
+**Args:**
+- `path` — Output file path (e.g. `"pack.npz"`).
+
+**Raises:**
+- `ValueError` — If the pack is empty or has no profiles.
+
+---
+
+#### `from_npz(path: str) -> LicelPack` *(classmethod)*
+
+Load a `LicelPack` from a `.npz` archive created by `to_npz()`.
+
+**Args:**
+- `path` — Path to the `.npz` file.
+
+**Returns:** A new `LicelPack` instance.
 
 ---
 

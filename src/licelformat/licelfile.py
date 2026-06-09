@@ -139,38 +139,56 @@ class LicelFile:
             raise ValueError("No valid ratio values in the h1..h2 interval")
         k = float(np.mean(ratio))
 
-        # Build the glued profile
-        glued = LicelProfile()
-        # Copy metadata from analog channel
-        glued.Active = p2.Active
-        glued.Photon = False
-        glued.LaserType = p2.LaserType
-        glued.NDataPoints = npts
-        glued.Reserved = p2.Reserved[:]
-        glued.HighVoltage = p2.HighVoltage
-        glued.BinWidth = p2.BinWidth
-        glued.Wavelength = p2.Wavelength
-        glued.Polarization = p2.Polarization
-        glued.BinShift = p2.BinShift
-        glued.DecBinShift = p2.DecBinShift
-        glued.AdcBits = p2.AdcBits
-        glued.NShots = p2.NShots
-        glued.DiscrLevel = p2.DiscrLevel
-        glued.DeviceID = "BG"
-        glued.NCrate = p2.NCrate
-
-        # Fill data
-        data = np.empty(npts, dtype=np.float64)
+        # Build the glued data
+        glued_data_arr = np.empty(npts, dtype=np.float64)
         # h < h1: analog
-        data[:n1] = p2_data[:n1]
+        glued_data_arr[:n1] = p2_data[:n1]
         # h1..h2: (analog + photon * k) / 2
-        data[n1:n2] = (p2_data[n1:n2] + p1_data[n1:n2] * k) * 0.5
+        glued_data_arr[n1:n2] = (p2_data[n1:n2] + p1_data[n1:n2] * k) * 0.5
         # h > h2: photon * k
-        data[n2:] = p1_data[n2:npts] * k
-        glued.Data = data.tolist()
+        glued_data_arr[n2:] = p1_data[n2:npts] * k
 
-        self.Profiles.append(glued)
-        self.NDatasets += 1
+        # Check if a glued profile for this wavelength/polarization already exists
+        existing = None
+        for p in self.Profiles:
+            if (
+                p.isGlued
+                and p.Wavelength == wavelength
+                and p.Polarization == polarization
+            ):
+                existing = p
+                break
+
+        if existing is not None:
+            # Update in-place
+            glued = existing
+            glued.NDataPoints = npts
+            glued.Data = glued_data_arr.tolist()
+        else:
+            # Create a new profile
+            glued = LicelProfile()
+            # Copy metadata from analog channel
+            glued.Active = p2.Active
+            glued.Photon = False
+            glued.LaserType = p2.LaserType
+            glued.NDataPoints = npts
+            glued.Reserved = p2.Reserved[:]
+            glued.HighVoltage = p2.HighVoltage
+            glued.BinWidth = p2.BinWidth
+            glued.Wavelength = p2.Wavelength
+            glued.Polarization = p2.Polarization
+            glued.BinShift = p2.BinShift
+            glued.DecBinShift = p2.DecBinShift
+            glued.AdcBits = p2.AdcBits
+            glued.NShots = p2.NShots
+            glued.DiscrLevel = p2.DiscrLevel
+            glued.DeviceID = "BG"
+            glued.NCrate = p2.NCrate
+            glued.Data = glued_data_arr.tolist()
+
+            self.Profiles.append(glued)
+            self.NDatasets += 1
+
         return glued
 
     def subtract_background(

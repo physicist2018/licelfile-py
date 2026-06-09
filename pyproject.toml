@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "licelformat"
-version = "1.4.1"
+version = "1.5.0"
 description = "Parser for Licel binary format — lidar measurement profiles (analog & photon counting)"
 readme = "README.md"
 license = "LGPL-3.0-or-later"
 license-files = ["LICENSE"]
 requires-python = ">=3.9"
 authors = [
-    { name = "Konstantin Shmirko", email = "physicist2018@gmail.com" },
+    { name = "Dr. Konstantin Shmirko", email = "physicist2018@yandex.ru" },
 ]
 keywords = [
     "lidar",
@@ -46,8 +46,12 @@ Repository = "https://github.com/physicist2018/licelfile-py"
 Issues = "https://github.com/physicist2018/licelfile-py/issues"
 
 [project.optional-dependencies]
+netcdf = [
+    "netCDF4>=1.5",
+]
 dev = [
     "pytest>=7",
+    "netCDF4>=1.5",
 ]
 
 [tool.setuptools.packages.find]

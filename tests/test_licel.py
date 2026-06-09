@@ -1,6 +1,7 @@
 """Tests for licelformat. Run with: pytest"""
 
 import os
+from datetime import datetime
 
 import numpy as np
 import pytest
@@ -549,3 +550,322 @@ class TestAverage:
         # min NDataPoints = 3, so (1+5)/2=3, (2+6)/2=4, (3+7)/2=5
         assert avg.Profiles[0].NDataPoints == 3
         np.testing.assert_array_almost_equal(avg.Profiles[0].Data, [3.0, 4.0, 5.0])
+
+
+class TestGlue:
+    """LicelFile.glue() and LicelPack.glue() — merging analog & photon channels."""
+
+    # ------------------------------------------------------------------ #
+    # Helpers
+    # ------------------------------------------------------------------ #
+
+    def _photon_profile(self, data, wavelength=355.0, polarization="o", bw=10.0):
+        p = LicelProfile()
+        p.BinWidth = bw
+        p.NDataPoints = len(data)
+        p.Data = [float(v) for v in data]
+        p.Wavelength = wavelength
+        p.Polarization = polarization
+        p.DeviceID = "BC"
+        p.Photon = True
+        p.Active = True
+        p.LaserType = 1
+        p.NShots = 2001
+        p.DiscrLevel = 3.1746
+        p.AdcBits = 0
+        p.Reserved = [0, 0, 0]
+        p.HighVoltage = 0
+        p.BinShift = 0
+        p.DecBinShift = 0
+        p.NCrate = 0
+        return p
+
+    def _analog_profile(self, data, wavelength=355.0, polarization="o", bw=10.0):
+        p = LicelProfile()
+        p.BinWidth = bw
+        p.NDataPoints = len(data)
+        p.Data = [float(v) for v in data]
+        p.Wavelength = wavelength
+        p.Polarization = polarization
+        p.DeviceID = "BT"
+        p.Photon = False
+        p.Active = True
+        p.LaserType = 1
+        p.NShots = 2001
+        p.DiscrLevel = 0.5
+        p.AdcBits = 12
+        p.Reserved = [0, 0, 0]
+        p.HighVoltage = 0
+        p.BinShift = 0
+        p.DecBinShift = 0
+        p.NCrate = 0
+        return p
+
+    def _file_with_pair(
+        self, analog_data, photon_data, wavelength=355.0, polarization="o"
+    ):
+        lf = LicelFile()
+        lf.MeasurementSite = "Test"
+        lf.MeasurementStartTime = datetime(2024, 6, 1, 12, 0, 0)
+        lf.Profiles = [
+            self._analog_profile(analog_data, wavelength, polarization),
+            self._photon_profile(photon_data, wavelength, polarization),
+        ]
+        lf.NDatasets = 2
+        return lf
+
+    # ------------------------------------------------------------------ #
+    # LicelFile.glue
+    # ------------------------------------------------------------------ #
+
+    def test_glue_creates_new_profile(self):
+        """First glue() call creates a new glued profile and increments NDatasets."""
+        analog = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+        photon = [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+        lf = self._file_with_pair(analog, photon)
+
+        glued = lf.glue(wavelength=355.0, polarization="o", h1=20.0, h2=60.0)
+
+        # NDatasets incremented
+        assert lf.NDatasets == 3
+        assert len(lf.Profiles) == 3
+        assert lf.Profiles[-1] is glued
+
+        # DeviceID is 'BG', Photon is False
+        assert glued.DeviceID == "BG"
+        assert glued.Photon is False
+        assert glued.isGlued
+
+        # Wavelength/Polarization preserved
+        assert glued.Wavelength == 355.0
+        assert glued.Polarization == "o"
+
+        # NDataPoints = min of the two
+        assert glued.NDataPoints == 10
+
+    def test_glue_data_zones(self):
+        """Verify data in the three altitude zones."""
+        # Simple case: photon = 2 * analog  →  k = analog/photon = 0.5
+        # h1=20m (bin 2), h2=60m (bin 6), bw=10m
+        # Zone  h < h1  (bins 0-1):  analog
+        # Zone  h1..h2 (bins 2-5):  (analog + photon * 0.5) / 2
+        # Zone  h > h2  (bins 6-9):  photon * 0.5
+        analog = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0]
+        photon = [20.0, 40.0, 60.0, 80.0, 100.0, 120.0, 140.0, 160.0, 180.0, 200.0]
+        lf = self._file_with_pair(analog, photon)
+
+        glued = lf.glue(wavelength=355.0, polarization="o", h1=20.0, h2=60.0)
+
+        # k = analog/photon in bins 2..5
+        #   at bin 2: 30/60 = 0.5
+        #   at bin 3: 40/80 = 0.5
+        #   at bin 4: 50/100 = 0.5
+        #   at bin 5: 60/120 = 0.5
+        #   → k = 0.5
+        expected = [
+            10.0,  # h<20: analog[0]
+            20.0,  # h<20: analog[1]
+            (30.0 + 60.0 * 0.5) * 0.5,  # h1..h2: (analog + photon*k)/2 = 30
+            40.0,  # (40+80*0.5)/2 = 40
+            50.0,  # (50+100*0.5)/2 = 50
+            60.0,  # (60+120*0.5)/2 = 60
+            140.0 * 0.5,  # h>h2: photon*k = 70
+            160.0 * 0.5,  # 80
+            180.0 * 0.5,  # 90
+            200.0 * 0.5,  # 100
+        ]
+        np.testing.assert_array_almost_equal(glued.Data, expected)
+
+    def test_glue_overwrites_existing(self):
+        """Calling glue() twice with same wavelength overwrites existing glued profile."""
+        analog = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+        photon = [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+        lf = self._file_with_pair(analog, photon)
+
+        # First glue — creates new
+        glued1 = lf.glue(wavelength=355.0, polarization="o", h1=20.0, h2=50.0)
+        assert lf.NDatasets == 3
+        assert len(lf.Profiles) == 3
+
+        # Second glue with same wavelength/pol — overwrites in-place
+        glued2 = lf.glue(wavelength=355.0, polarization="o", h1=30.0, h2=60.0)
+
+        # NDatasets does NOT increase
+        assert lf.NDatasets == 3
+        assert len(lf.Profiles) == 3
+
+        # Same profile object was updated
+        assert glued1 is glued2
+
+        # Data should reflect new h1/h2
+        expected_k = np.mean(np.array(analog[3:6]) / np.array(photon[3:6]))
+        n1, n2 = 3, 6
+        expected_data = np.empty(10)
+        expected_data[:n1] = analog[:n1]
+        expected_data[n1:n2] = (
+            np.array(analog[n1:n2]) + np.array(photon[n1:n2]) * expected_k
+        ) * 0.5
+        expected_data[n2:] = np.array(photon[n2:]) * expected_k
+        np.testing.assert_array_almost_equal(glued2.Data, expected_data)
+
+    def test_glue_different_wavelengths_separate(self):
+        """Glue at two different wavelengths creates two separate glued profiles."""
+        analog_355 = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        photon_355 = [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+        analog_532 = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
+        photon_532 = [20.0, 40.0, 60.0, 80.0, 100.0, 120.0]
+
+        lf = LicelFile()
+        lf.Profiles = [
+            self._analog_profile(analog_355, 355.0, "o"),
+            self._photon_profile(photon_355, 355.0, "o"),
+            self._analog_profile(analog_532, 532.0, "s"),
+            self._photon_profile(photon_532, 532.0, "s"),
+        ]
+        lf.NDatasets = 4
+
+        g1 = lf.glue(wavelength=355.0, polarization="o", h1=10.0, h2=30.0)
+        assert lf.NDatasets == 5
+        assert len(lf.Profiles) == 5
+
+        g2 = lf.glue(wavelength=532.0, polarization="s", h1=10.0, h2=30.0)
+        # Second glue for different wavelength creates another new profile
+        assert lf.NDatasets == 6
+        assert len(lf.Profiles) == 6
+
+        assert g1 is not g2
+        assert g1.Wavelength == 355.0
+        assert g2.Wavelength == 532.0
+        assert g1.Polarization == "o"
+        assert g2.Polarization == "s"
+
+        # Re-glue 355 again — overwrites
+        g3 = lf.glue(wavelength=355.0, polarization="o", h1=20.0, h2=40.0)
+        assert lf.NDatasets == 6  # unchanged
+        assert len(lf.Profiles) == 6
+        assert g1 is g3  # same object
+
+    def test_glue_missing_photon(self):
+        """ValueError when photon channel is missing."""
+        lf = LicelFile()
+        lf.Profiles = [self._analog_profile([1.0, 2.0, 3.0])]
+        lf.NDatasets = 1
+        with pytest.raises(ValueError, match="matching photon/analog"):
+            lf.glue(wavelength=355.0, polarization="o", h1=10.0, h2=20.0)
+
+    def test_glue_missing_analog(self):
+        """ValueError when analog channel is missing."""
+        lf = LicelFile()
+        lf.Profiles = [self._photon_profile([1.0, 2.0, 3.0])]
+        lf.NDatasets = 1
+        with pytest.raises(ValueError, match="matching photon/analog"):
+            lf.glue(wavelength=355.0, polarization="o", h1=10.0, h2=20.0)
+
+    def test_glue_h2_less_than_h1(self):
+        """ValueError when h2 <= h1."""
+        lf = self._file_with_pair([1.0] * 10, [10.0] * 10)
+        with pytest.raises(ValueError, match="must be greater"):
+            lf.glue(wavelength=355.0, polarization="o", h1=50.0, h2=20.0)
+
+    def test_glue_zero_binwidth(self):
+        """ValueError when BinWidth is zero."""
+        analog = self._analog_profile([1.0] * 5)
+        analog.BinWidth = 0.0
+        photon = self._photon_profile([10.0] * 5)
+        photon.BinWidth = 0.0
+        lf = LicelFile()
+        lf.Profiles = [analog, photon]
+        lf.NDatasets = 2
+        with pytest.raises(ValueError, match="BinWidth must be positive"):
+            lf.glue(wavelength=355.0, polarization="o", h1=10.0, h2=30.0)
+
+    def test_glue_no_valid_ratio(self):
+        """ValueError when all ratio values are invalid (e.g. zeros in photon)."""
+        analog = [1.0, 2.0, 3.0, 4.0, 5.0]
+        photon = [0.0, 0.0, 0.0, 0.0, 0.0]
+        lf = self._file_with_pair(analog, photon)
+        with pytest.raises(ValueError, match="No valid ratio"):
+            lf.glue(wavelength=355.0, polarization="o", h1=10.0, h2=40.0)
+
+    def test_glue_truncates_to_shortest(self):
+        """NDataPoints of glued profile = min(analog.NDataPoints, photon.NDataPoints)."""
+        analog = [1.0, 2.0, 3.0, 4.0, 5.0]  # 5 points
+        photon = [10.0, 10.0, 10.0]  # 3 points
+        lf = self._file_with_pair(analog, photon)
+
+        glued = lf.glue(wavelength=355.0, polarization="o", h1=10.0, h2=20.0)
+
+        assert glued.NDataPoints == 3
+        assert len(glued.Data) == 3
+        # Only first 3 bins should be computed
+        assert glued.Data[0] == 1.0  # analog[0]
+
+    # ------------------------------------------------------------------ #
+    # LicelPack.glue
+    # ------------------------------------------------------------------ #
+
+    def test_pack_glue_in_place(self):
+        """LicelPack.glue() mutates self and returns self."""
+        lf = self._file_with_pair([1.0] * 10, [10.0] * 10)
+        pack = LicelPack()
+        pack.Data["f1"] = lf
+
+        result = pack.glue(wavelength=355.0, polarization="o", h1=20.0, h2=50.0)
+
+        assert result is pack  # returns self
+        assert "f1" in pack.Data  # file kept — glue succeeded
+        assert pack.Data["f1"].NDatasets == 3  # glued profile added
+        assert pack.StartTime is not None
+
+    def test_pack_glue_removes_failed_files(self):
+        """Files where glue fails are removed from the pack."""
+        good_lf = self._file_with_pair([1.0] * 10, [10.0] * 10)
+        bad_lf = LicelFile()
+        bad_lf.Profiles = [self._analog_profile([1.0] * 5)]
+        bad_lf.NDatasets = 1
+
+        pack = LicelPack()
+        pack.Data["good"] = good_lf
+        pack.Data["bad"] = bad_lf
+
+        pack.glue(wavelength=355.0, polarization="o", h1=20.0, h2=50.0)
+
+        assert "good" in pack.Data
+        assert "bad" not in pack.Data
+        assert len(pack.Data) == 1
+
+    def test_pack_glue_all_fail(self):
+        """When all files fail, pack becomes empty."""
+        bad = LicelFile()
+        bad.Profiles = [self._analog_profile([1.0] * 5)]
+        bad.NDatasets = 1
+
+        pack = LicelPack()
+        pack.Data["bad"] = bad
+
+        pack.glue(wavelength=355.0, polarization="o", h1=20.0, h2=50.0)
+
+        assert len(pack.Data) == 0
+        assert pack.StartTime is None
+        assert pack.StopTime is None
+
+    def test_pack_glue_overwrites_existing(self):
+        """Pack-level glue re-glues on subsequent calls (in-place overwrite)."""
+        lf = self._file_with_pair(
+            [1.0, 2.0, 3.0, 4.0, 5.0], [10.0, 10.0, 10.0, 10.0, 10.0]
+        )
+        pack = LicelPack()
+        pack.Data["f1"] = lf
+
+        # First glue
+        pack.glue(wavelength=355.0, polarization="o", h1=10.0, h2=30.0)
+        assert lf.NDatasets == 3
+        data_first = lf.Profiles[-1].Data[:]
+
+        # Second glue with different h1/h2 — overwrites
+        pack.glue(wavelength=355.0, polarization="o", h1=20.0, h2=40.0)
+        assert lf.NDatasets == 3  # not incremented
+        data_second = lf.Profiles[-1].Data
+
+        # Data changed
+        assert data_second != data_first

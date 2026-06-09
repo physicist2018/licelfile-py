@@ -7,3 +7,4 @@ recursive-include src *.py
 include tests/*.py
 include requirements.txt
 include API.md
+include CHANGELOG.md

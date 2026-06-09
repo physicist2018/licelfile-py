@@ -16,7 +16,11 @@ reference Go implementation.
 - **Round‑trip**: save → reload preserves data losslessly (unscale on write)
 - **Multi‑file** loading via glob masks and ZIP archives
 - **Filter** profiles by any predicate (`LicelFile.filter`) and files by any criteria (`LicelPack.filter`)
+- **Glue (merge)** analog and photon channels into combined profiles
+- **Background subtraction** — mean, median, or dark signal correction
 - **Average** channels across multiple files with `LicelPack.average()`
+- **NumPy `.npz` export/import** for fast Python-native serialization
+- **NetCDF export/import** (CF-1.8 conventions) for sharing and visualization
 - **Save to ZIP** with configurable compression method and level
 - **Profile selection** by wavelength and channel type
 - **NumPy** arrays for all profile data — ready for further analysis
@@ -74,8 +78,11 @@ for p in profiles:
 # using altitude range 1500-2500 m for calibration
 lf.glue(wavelength=355.0, polarization="o", h1=1500, h2=2500)
 
-# Same for all files in a pack — returns new pack with only glued files
-glued_pack = pack.glue(wavelength=532.0, polarization="s", h1=1000, h2=2000)
+# Calling again with the same wavelength overwrites the existing glued profile
+lf.glue(wavelength=355.0, polarization="o", h1=1000, h2=2000)
+
+# Same for all files in a pack — removes files without a matching pair
+pack.glue(wavelength=532.0, polarization="s", h1=1000, h2=2000)
 ```
 
 ### Subtract background
@@ -107,6 +114,35 @@ avg_file = pack.average()
 # Each profile in avg_file is the element-wise mean of the
 # corresponding profiles from all files in the pack
 print(avg_file.Profiles[0].Data[:5])  # averaged data
+```
+
+### Export to NumPy .npz
+
+```python
+# Save the pack to a compressed .npz archive
+pack.to_npz("measurements.npz")
+
+# Load it back
+from licelformat import LicelPack
+restored = LicelPack.from_npz("measurements.npz")
+```
+
+### Export to NetCDF
+
+Requires the optional `netCDF4` package:
+
+```bash
+pip install licelformat[netcdf]
+```
+
+```python
+from licelformat import to_netcdf, from_netcdf
+
+# Save
+to_netcdf(pack, "measurements.nc")
+
+# Load back
+restored = from_netcdf("measurements.nc")
 ```
 
 ### Filter profiles in a LicelFile
@@ -217,7 +253,7 @@ Methods: `select_certain_wavelength()`, `glue()`, `filter()`, `save()`, `to_byte
 
 Fields: `StartTime`, `StopTime`, `Data` (dict of `LicelFile`)
 
-Methods: `select_certain_wavelength()`, `filter()`, `filter_files()`, `glue()`, `average()`, `save()`, `save_to_zip()`, `to_dict()`, `truncate(rmax)`, `subtract_background()`
+Methods: `select_certain_wavelength()`, `filter()`, `filter_files()`, `glue()`, `average()`, `to_npz()`, `from_npz()`, `save()`, `save_to_zip()`, `to_dict()`, `truncate(rmax)`, `subtract_background()`
 
 ### Module‑level functions
 
@@ -227,6 +263,8 @@ Methods: `select_certain_wavelength()`, `filter()`, `filter_files()`, `glue()`, 
 | `LoadLicelFileFromReader(r)`| Load from a binary stream                |
 | `NewLicelPack(mask)`        | Load all files matching a glob pattern   |
 | `NewLicelPackFromZip(path)` | Load all valid files from a ZIP archive  |
+| `to_netcdf(pack, path)`     | Save a LicelPack to NetCDF               |
+| `from_netcdf(path)`         | Load a LicelPack from NetCDF             |
 
 ## License
 

@@ -9,7 +9,7 @@ import io
 import re
 import zipfile
 from datetime import datetime
-from typing import Callable, Dict, Optional
+from typing import Callable, ClassVar, Dict, List, Optional
 
 import numpy as np
 
@@ -20,6 +20,23 @@ from .licelfile import (
     LoadLicelFileFromReader,
 )
 from .licelprofile import LicelProfile
+
+_NPZ_PACK_VERSION: int = 1
+"""Version identifier for .npz format."""
+
+
+def _dt2ts(dt: Optional[datetime]) -> float:
+    """Convert datetime to Unix timestamp (seconds since epoch). Returns NaN if None."""
+    if dt is None:
+        return float("nan")
+    return dt.timestamp()
+
+
+def _ts2dt(ts: float) -> Optional[datetime]:
+    """Convert Unix timestamp to datetime. Returns None if NaN."""
+    if ts is None or (isinstance(ts, float) and np.isnan(ts)):
+        return None
+    return datetime.fromtimestamp(ts)
 
 
 def _is_valid_filename(filename: str) -> bool:
@@ -90,23 +107,34 @@ class LicelPack:
         h1: float,
         h2: float,
     ) -> "LicelPack":
-        """Glue analog and photon channels, returning files that succeeded.
+        """Glue analog and photon channels in all files of the pack (in-place).
 
         For each file that has both a photon and an analog channel with
-        the given wavelength and polarization, creates a glued profile.
+        the given wavelength and polarization, creates (or updates) a
+        glued profile. Files that don't have a matching pair are removed
+        from the pack. StartTime and StopTime are recomputed from the
+        remaining files.
 
         Returns:
-            A new LicelPack containing only the files where glue succeeded.
+            self, for chaining.
         """
-        result = LicelPack()
+        failed_names: list[str] = []
         for name, licf in self.Data.items():
             try:
                 licf.glue(wavelength, polarization, h1, h2)
-                result.Data[name] = licf
-                # _update_time_range(result, licf.MeasurementStartTime)
             except ValueError:
-                pass
-        return result
+                failed_names.append(name)
+
+        for name in failed_names:
+            del self.Data[name]
+
+        # Recompute StartTime/StopTime
+        self.StartTime = None
+        self.StopTime = None
+        for licf in self.Data.values():
+            _update_time_range(self, licf.MeasurementStartTime)
+
+        return self
 
     def filter(self, f: "Callable[[LicelProfile], bool]") -> LicelProfilesList:
         """Collect profiles that satisfy a predicate across all files.
@@ -236,6 +264,211 @@ class LicelPack:
         """Save all files in the pack to disk."""
         for fname, licf in self.Data.items():
             licf.save(fname)
+
+    def to_npz(self, path: str) -> None:
+        """Save the pack to a compressed NumPy .npz archive.
+
+        The archive contains structured arrays with metadata and a 2D
+        data matrix (NaN-padded to the longest profile).
+
+        Args:
+            path: Output file path (e.g. "pack.npz").
+        """
+        if not self.Data:
+            raise ValueError("Cannot save an empty LicelPack to .npz")
+
+        # Collect all profiles with file index
+        file_names = list(self.Data.keys())
+        profiles: list[tuple[int, LicelProfile]] = []
+        for fi, name in enumerate(file_names):
+            for p in self.Data[name].Profiles:
+                profiles.append((fi, p))
+
+        n_profiles = len(profiles)
+        if n_profiles == 0:
+            raise ValueError("No profiles in the pack")
+
+        # Find max NDataPoints for padding
+        max_npts = max(p.NDataPoints for _, p in profiles)
+
+        # Build structured arrays
+        file_meta_dtype = np.dtype(
+            [
+                ("name", "U256"),
+                ("site", "U128"),
+                ("start_time", "f8"),
+                ("stop_time", "f8"),
+                ("altitude", "f8"),
+                ("longitude", "f8"),
+                ("latitude", "f8"),
+                ("zenith", "f8"),
+                ("laser1_nshots", "i4"),
+                ("laser1_freq", "i4"),
+                ("laser2_nshots", "i4"),
+                ("laser2_freq", "i4"),
+                ("laser3_nshots", "i4"),
+                ("laser3_freq", "i4"),
+                ("ndatasets", "i4"),
+            ]
+        )
+
+        n_files = len(file_names)
+        file_meta = np.empty(n_files, dtype=file_meta_dtype)
+        for fi, name in enumerate(file_names):
+            lf = self.Data[name]
+            file_meta[fi] = (
+                name,
+                lf.MeasurementSite,
+                _dt2ts(lf.MeasurementStartTime),
+                _dt2ts(lf.MeasurementStopTime),
+                lf.AltitudeAboveSeaLevel,
+                lf.Longitude,
+                lf.Latitude,
+                lf.Zenith,
+                lf.Laser1NShots,
+                lf.Laser1Freq,
+                lf.Laser2NShots,
+                lf.Laser2Freq,
+                lf.Laser3NShots,
+                lf.Laser3Freq,
+                lf.NDatasets,
+            )
+
+        prof_meta_dtype = np.dtype(
+            [
+                ("file_index", "i4"),
+                ("active", "?"),
+                ("photon", "?"),
+                ("laser_type", "i4"),
+                ("npoints", "i4"),
+                ("reserved", "3i4"),
+                ("high_voltage", "i4"),
+                ("bin_width", "f8"),
+                ("wavelength", "f8"),
+                ("polarization", "U8"),
+                ("bin_shift", "i4"),
+                ("dec_bin_shift", "i4"),
+                ("adc_bits", "i4"),
+                ("nshots", "i4"),
+                ("discr_level", "f8"),
+                ("device_id", "U4"),
+                ("n_crate", "i4"),
+            ]
+        )
+
+        prof_meta = np.empty(n_profiles, dtype=prof_meta_dtype)
+        data = np.full((n_profiles, max_npts), np.nan, dtype=np.float64)
+        for pi, (fi, p) in enumerate(profiles):
+            prof_meta[pi] = (
+                fi,
+                p.Active,
+                p.Photon,
+                p.LaserType,
+                p.NDataPoints,
+                p.Reserved,
+                p.HighVoltage,
+                p.BinWidth,
+                p.Wavelength,
+                p.Polarization,
+                p.BinShift,
+                p.DecBinShift,
+                p.AdcBits,
+                p.NShots,
+                p.DiscrLevel,
+                p.DeviceID,
+                p.NCrate,
+            )
+            data[pi, : p.NDataPoints] = p.Data[: p.NDataPoints]
+
+        pack_start = _dt2ts(self.StartTime)
+        pack_stop = _dt2ts(self.StopTime)
+
+        np.savez_compressed(
+            path,
+            _pack_version=_NPZ_PACK_VERSION,
+            _pack_start=pack_start,
+            _pack_stop=pack_stop,
+            file_meta=file_meta,
+            prof_meta=prof_meta,
+            data=data,
+        )
+
+    @classmethod
+    def from_npz(cls, path: str) -> "LicelPack":
+        """Load a LicelPack from a .npz archive created by to_npz().
+
+        Args:
+            path: Path to the .npz file.
+
+        Returns:
+            A new LicelPack instance.
+        """
+        data_npz = np.load(path)
+
+        version = int(data_npz["_pack_version"])
+        if version != _NPZ_PACK_VERSION:
+            raise ValueError(
+                f"Unsupported .npz version {version}, expected {_NPZ_PACK_VERSION}"
+            )
+
+        pack = cls()
+        pack.StartTime = _ts2dt(float(data_npz["_pack_start"]))
+        pack.StopTime = _ts2dt(float(data_npz["_pack_stop"]))
+
+        file_meta = data_npz["file_meta"]
+        prof_meta = data_npz["prof_meta"]
+        data = data_npz["data"]
+
+        # Reconstruct LicelFiles
+        n_files = len(file_meta)
+        for fi in range(n_files):
+            fm = file_meta[fi]
+            lf = LicelFile()
+            lf.MeasurementSite = str(fm["site"])
+            lf.MeasurementStartTime = _ts2dt(float(fm["start_time"]))
+            lf.MeasurementStopTime = _ts2dt(float(fm["stop_time"]))
+            lf.AltitudeAboveSeaLevel = float(fm["altitude"])
+            lf.Longitude = float(fm["longitude"])
+            lf.Latitude = float(fm["latitude"])
+            lf.Zenith = float(fm["zenith"])
+            lf.Laser1NShots = int(fm["laser1_nshots"])
+            lf.Laser1Freq = int(fm["laser1_freq"])
+            lf.Laser2NShots = int(fm["laser2_nshots"])
+            lf.Laser2Freq = int(fm["laser2_freq"])
+            lf.Laser3NShots = int(fm["laser3_nshots"])
+            lf.Laser3Freq = int(fm["laser3_freq"])
+            lf.NDatasets = int(fm["ndatasets"])
+            lf.FileLoaded = True
+
+            # Find profiles belonging to this file
+            file_prof_indices = np.where(prof_meta["file_index"] == fi)[0]
+            for pi in file_prof_indices:
+                pm = prof_meta[pi]
+                p = LicelProfile()
+                p.Active = bool(pm["active"])
+                p.Photon = bool(pm["photon"])
+                p.LaserType = int(pm["laser_type"])
+                p.NDataPoints = int(pm["npoints"])
+                p.Reserved = list(pm["reserved"])
+                p.HighVoltage = int(pm["high_voltage"])
+                p.BinWidth = float(pm["bin_width"])
+                p.Wavelength = float(pm["wavelength"])
+                p.Polarization = str(pm["polarization"])
+                p.BinShift = int(pm["bin_shift"])
+                p.DecBinShift = int(pm["dec_bin_shift"])
+                p.AdcBits = int(pm["adc_bits"])
+                p.NShots = int(pm["nshots"])
+                p.DiscrLevel = float(pm["discr_level"])
+                p.DeviceID = str(pm["device_id"])
+                p.NCrate = int(pm["n_crate"])
+                npts = int(pm["npoints"])
+                p.Data = data[pi, :npts].tolist()
+                lf.Profiles.append(p)
+
+            pack.Data[str(fm["name"])] = lf
+
+        data_npz.close()
+        return pack
 
     def save_to_zip(
         self,

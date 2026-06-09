@@ -16,6 +16,12 @@ from .licelfile import (
 from .licelpack import LicelPack, NewLicelPack, NewLicelPackFromZip
 from .licelprofile import LICEL_MAX_RESERVED, LicelProfile
 
+# Optional NetCDF I/O — import only if netCDF4 is available
+try:
+    from .ionetcdf import from_netcdf, to_netcdf  # noqa: F401
+except ImportError:
+    pass
+
 __all__ = [
     "LicelProfile",
     "LICEL_MAX_RESERVED",
@@ -26,4 +32,6 @@ __all__ = [
     "LicelPack",
     "NewLicelPack",
     "NewLicelPackFromZip",
+    "to_netcdf",
+    "from_netcdf",
 ]
